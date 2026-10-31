@@ -25,6 +25,7 @@ from typing_extensions import TypedDict
 from sde_rag import db, prompts, retrieval
 from sde_rag.agents import AgentError, get_registry
 from sde_rag.auth import Principal, auth_provider, safe_can_read
+from sde_rag.parse.markdown_qa import is_question
 from sde_rag.settings import section
 from sde_rag.taxonomy import taxonomy
 from sde_rag.text import detect_lang, truncate
@@ -119,7 +120,14 @@ def guard(state: QueryState) -> dict:
     return {"question": q, "trace": {"injection_suspected": bool(_INJECTION.search(q))}}
 
 
-_TOPIC_RULE = re.compile(r"常见|常问|面试题|有哪些|哪些问题|题目|common|frequent|typical|top \d+|list of|questions (for|about|on)", re.I)
+_TOPIC_RULE = re.compile(r"常见|常问|会问|问什么|考什么|考察|面试题|有哪些|哪些问题|题目|准备|复习|学什么|"
+                         r"common|frequent|typical|top \d+|list of|"
+                         r"questions (for|about|on)|prepare for|study|interviews\b", re.I)
+
+
+def _one_question(q: str) -> bool:
+    q = q.strip()
+    return is_question(q) or (len(q) >= 8 and q.endswith(("?", "？")))
 _EXPERIENCE_RULE = re.compile(r"面经|面试经历|面试流程|几轮|interview (experience|process|loop)|onsite at|interviewing at", re.I)
 
 
@@ -141,6 +149,10 @@ def understand(state: QueryState) -> dict:
     except AgentError as e:
         u = rule_understanding(q)
         source = f"rules ({str(e)[:120]})"
+    corrected = None
+    if u.intent == "topic" and _one_question(q) and not _TOPIC_RULE.search(q):
+        # One specific question asks for an answer, not a list (small routers mix the two up).
+        u.intent, corrected = "solve", "topic->solve"
     tax = taxonomy()
     filters = state.get("filters") or {}
     category = filters.get("category") or (u.category if u.category in tax.categories else None)
@@ -152,7 +164,7 @@ def understand(state: QueryState) -> dict:
     return {"intent": u.intent, "language": lang, "standalone": u.standalone_question or q,
             "search_queries": queries, "category": category, "tags": tags,
             "trace": {"understanding": source, "calls": calls, "intent": u.intent, "queries": queries,
-                      "category": category, "tags": tags}}
+                      "category": category, "tags": tags, "intent_corrected": corrected}}
 
 
 def route(state: QueryState) -> str:
@@ -263,16 +275,30 @@ def out_of_scope(state: QueryState) -> dict:
 
 
 _LABEL = re.compile(r"\[((?:Q\d+)|(?:D\d+#\d+))\]")
+_LIST_LINE = re.compile(r"^\s*(?:[-*+]|\d+[.)]|\|)\s")
 
 
 def verify(state: QueryState) -> dict:
-    """Keep only citations that point at context items the user may read; drop the rest from the text."""
+    """Keep only citations that point at context items the user may read; drop the rest from the text.
+    A list item or table row citing nothing but invalid labels is an invented entry and is dropped whole."""
     items = {i["label"]: i for i in state.get("context") or []}
     allowed = dict(zip(items, safe_can_read(_principal(state), list(items.values()))))
     answer = state.get("answer") or ""
     invalid = sorted({m for m in _LABEL.findall(answer) if not allowed.get(m)})
-    for label in invalid:
-        answer = answer.replace(f"[{label}]", "")
+    if invalid:
+        kept, dropped = [], 0
+        for line in answer.split("\n"):
+            labels = _LABEL.findall(line)
+            if labels and _LIST_LINE.match(line) and not any(allowed.get(m) for m in labels):
+                dropped += 1
+                continue
+            for label in labels:
+                if not allowed.get(label):
+                    line = re.sub(rf"[ \t]*\[{re.escape(label)}\]", "", line)
+            kept.append(line)
+        answer = "\n".join(kept)
+        if dropped:
+            _emit({"type": "status", "text": f"removed {dropped} uncited item(s)"})
     order: list[str] = []
     for m in _LABEL.findall(answer):
         if m not in order:

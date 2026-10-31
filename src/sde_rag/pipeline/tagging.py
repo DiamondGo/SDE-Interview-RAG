@@ -1,6 +1,7 @@
 """Tagging: rules and source hints first (free, immediate), then the LLM tagger refines within a per-run budget.
 
-Rule tags come from alias matches in the question and its section path (and repeated matches in the answer).
+Rule tags come from alias matches in the question and its section path (and repeated matches in the answer);
+they are made again when the taxonomy version changes.
 Source hints are the category/tags configured for the repository the question came from; they are trusted
 and kept. LLM tags replace rule tags; unknown keywords the LLM proposes go to tag_candidates for review.
 """
@@ -52,8 +53,10 @@ def _set_tags(t, qid: int, tags: dict[str, str], category: str | None, status: s
 
 def rule_tag_stage(limit: int = 100000) -> dict:
     c = db.conn()
-    rows = c.execute("SELECT id, text, section_path, answer FROM questions WHERE tag_status IS NULL LIMIT ?",
-                     (limit,)).fetchall()
+    # New questions, and rule tags made with an older taxonomy (LLM tags stay until the LLM tags again).
+    rows = c.execute("SELECT id, text, section_path, answer FROM questions WHERE tag_status IS NULL OR "
+                     "(tag_status = 'rule' AND COALESCE(tag_version, 0) < ?) LIMIT ?",
+                     (taxonomy().version, limit)).fetchall()
     changed = []
     with db.tx() as t:
         for r in rows:

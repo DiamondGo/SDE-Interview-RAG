@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 from sde_rag.text import clean_question, strip_markup
 
-PARSER_VERSION = "rules-v1"
+PARSER_VERSION = "rules-v3"
 
 # At most 3 spaces of indentation: deeper "# ..." lines are comments inside indented code blocks.
 _HEADING = re.compile(r"^ {0,3}(?:\d+\.\s+)?(#{1,6})\s+(.+?)\s*#*\s*$")
@@ -27,6 +27,8 @@ _NUMBERED_HEADING = re.compile(r"^\d+\.\s+#{1,6}\s+\S")
 _INTERROGATIVE = re.compile(
     r"^(what|what's|whats|why|how|when|where|which|who|whom|whose|is|are|was|were|do|does|did|can|could|"
     r"should|would|will|shall|may|have|has)\b", re.I)
+# Blog headings ("What I took away", "How we scaled Postgres"): first person after the question word.
+_NARRATIVE = re.compile(r"^(what|why|how|when|where|which|who)\s+(i|i've|i'm|we|we've|my|our)\b", re.I)
 # Verbs that only start questions ("Explain ...").
 _IMPERATIVE = re.compile(
     r"^(explain|describe|define|compare|contrast|differentiate|distinguish|discuss|elaborate|summarize|"
@@ -44,6 +46,8 @@ _META = re.compile(
     r"disclaimer|translations?|how to use this|support this|star this|follow me|subscribe|newsletter|"
     r"download|buy me)\b", re.I)
 _TAGS = re.compile(r"</?(?:b|strong|i|em|br|p|code)\s*/?>", re.I)
+# "What is X? — Difficulty: Easy": a label after the question, not part of it.
+_DIFFICULTY = re.compile(r"\s*(?:[—–-]+|\||\(|\[)?\s*difficulty\s*:?\s*(easy|medium|hard)\s*[)\]]?\s*$", re.I)
 
 
 @dataclass
@@ -52,6 +56,14 @@ class QA:
     answer: str
     section_path: str
     ordinal: int
+    difficulty: str | None = None
+
+
+def split_difficulty(question: str) -> tuple[str, str | None]:
+    m = _DIFFICULTY.search(question)
+    if not m or m.start() == 0:
+        return question, None
+    return question[:m.start()].rstrip(), m.group(1).lower()
 
 
 def is_question(text: str) -> bool:
@@ -63,6 +75,8 @@ def is_question(text: str) -> bool:
         return False
     if t.endswith("?"):
         return True
+    if _NARRATIVE.match(t):
+        return False
     if len(words) >= 3 and (_INTERROGATIVE.match(t) or _IMPERATIVE.match(t) or _WEAK_IMPERATIVE.match(t)
                             or _DESIGN_PRODUCT.match(t)):
         return True
@@ -184,4 +198,9 @@ def parse_markdown_qa(md: str, *, bare_list_questions: bool = True, title_questi
             if is_question(q):
                 p.emit_bare(q)
     p.close()
-    return [qa for qa in p.out if qa.question]
+    out = []
+    for qa in p.out:
+        if qa.question:
+            qa.question, qa.difficulty = split_difficulty(qa.question)
+            out.append(qa)
+    return out

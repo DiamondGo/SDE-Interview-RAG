@@ -95,18 +95,34 @@ def _upsert_question_chunks(version: str) -> dict:
 
 def _index_documents(version: str, limit: int) -> dict:
     max_chars = int(section("index").get("doc_chunk_chars", 1800))
-    stats = {"docs_indexed": 0, "doc_chunks": 0}
+    stats = {"docs_indexed": 0, "doc_chunks": 0, "doc_chunks_kept": 0}
     tax = taxonomy()
     for doc in due_documents("parsed", "index", limit):
         with db.tx() as t:
-            for (chunk_id,) in t.execute("SELECT id FROM chunks WHERE kind = 'doc' AND doc_id = ?",
-                                         (doc["id"],)).fetchall():
-                delete_chunk(t, chunk_id)
+            # Chunks whose text is unchanged keep their row and embedding; only new text is embedded.
+            old: dict[str, list[int]] = {}
+            for r in t.execute("SELECT id, content_hash FROM chunks WHERE kind = 'doc' AND doc_id = ? "
+                               "AND index_version = ? ORDER BY id", (doc["id"], version)).fetchall():
+                old.setdefault(r["content_hash"], []).append(r["id"])
+            # Out of the way of the UNIQUE ordinal while chunks are renumbered.
+            t.execute("UPDATE chunks SET ordinal = -id WHERE kind = 'doc' AND doc_id = ? AND index_version = ?",
+                      (doc["id"], version))
+            stale = [cid for cid, in t.execute("SELECT id FROM chunks WHERE kind = 'doc' AND doc_id = ? "
+                                               "AND index_version != ?", (doc["id"], version)).fetchall()]
             if doc["kind"] == "experience" and doc["clean_text"]:
                 for n, part in enumerate(split_paragraphs(doc["clean_text"], max_chars)):
                     tags = rule_tags(f"{doc['title']}\n{part}", limit=6)
                     category = tax.category_of(tags)
                     text = f"{doc['title']}\n{part}" if n else part
+                    reuse = old.get(sha1(text))
+                    if reuse:
+                        chunk_id = reuse.pop(0)
+                        t.execute("UPDATE chunks SET ordinal = ?, category = ?, tags = ? WHERE id = ?",
+                                  (n, category, " ".join(tags), chunk_id))
+                        t.execute("UPDATE chunk_fts SET tags = ? WHERE rowid = ?",
+                                  (f"{category or ''} {' '.join(tags)}", chunk_id))
+                        stats["doc_chunks_kept"] += 1
+                        continue
                     chunk_id = t.execute(
                         "INSERT INTO chunks (index_version, kind, doc_id, ordinal, embed_text, content_hash, category,"
                         " tags, tenant_id, visibility, acl, created_at) VALUES (?, 'doc', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -115,6 +131,8 @@ def _index_documents(version: str, limit: int) -> dict:
                     t.execute("INSERT INTO chunk_fts (rowid, body, tags) VALUES (?, ?, ?)",
                               (chunk_id, f"{doc['title']}\n{part}", f"{category or ''} {' '.join(tags)}"))
                     stats["doc_chunks"] += 1
+            for chunk_id in stale + [cid for ids in old.values() for cid in ids]:
+                delete_chunk(t, chunk_id)
             t.execute("UPDATE documents SET status = 'indexed', stage = NULL, updated_at = ? WHERE id = ?",
                       (db.now_iso(), doc["id"]))
         stats["docs_indexed"] += 1

@@ -64,8 +64,16 @@ def _drop_mentions(t, doc_id: int) -> None:
     t.execute("DELETE FROM question_mentions WHERE doc_id = ?", (doc_id,))
 
 
+def requeue_outdated_parses() -> int:
+    """Documents parsed by an older parser go back to `cleaned`; their stored clean text is parsed again."""
+    return db.conn().execute(
+        "UPDATE documents SET status = 'cleaned', updated_at = ? WHERE status IN ('parsed', 'indexed') "
+        "AND COALESCE(parser_version, '') != ?", (db.now_iso(), PARSER_VERSION)).rowcount
+
+
 def parse_stage(limit: int, heartbeat=lambda: None) -> dict:
-    stats = {"parsed": 0, "questions": 0, "new_questions": 0, "no_questions": 0, "failed": 0}
+    stats = {"parsed": 0, "questions": 0, "new_questions": 0, "no_questions": 0, "failed": 0,
+             "reparse_queued": requeue_outdated_parses()}
     for doc in due_documents("cleaned", "parse", limit):
         try:
             with db.tx() as t:
@@ -83,12 +91,15 @@ def parse_stage(limit: int, heartbeat=lambda: None) -> dict:
                         row = t.execute("SELECT id, answer FROM questions WHERE norm_hash = ?", (h,)).fetchone()
                         if row is None:
                             qid = t.execute(
-                                "INSERT INTO questions (norm_hash, text, answer, section_path, created_at, updated_at)"
-                                " VALUES (?, ?, ?, ?, ?, ?)", (h, qa.question, qa.answer, qa.section_path, now, now)
-                            ).lastrowid
+                                "INSERT INTO questions (norm_hash, text, answer, section_path, difficulty, "
+                                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                (h, qa.question, qa.answer, qa.section_path, qa.difficulty, now, now)).lastrowid
                             stats["new_questions"] += 1
                         else:
                             qid = row["id"]
+                            if qa.difficulty:
+                                t.execute("UPDATE questions SET difficulty = COALESCE(difficulty, ?) WHERE id = ?",
+                                          (qa.difficulty, qid))
                             if qa.answer and len(qa.answer) > len(row["answer"] or ""):
                                 t.execute("UPDATE questions SET answer = ?, section_path = ?, updated_at = ? "
                                           "WHERE id = ?", (qa.answer, qa.section_path, now, qid))
@@ -100,8 +111,8 @@ def parse_stage(limit: int, heartbeat=lambda: None) -> dict:
                              qa.ordinal, PARSER_VERSION, now))
                         t.execute("UPDATE questions SET stats_dirty = 1 WHERE id = ?", (qid,))
                     stats["questions"] += len(qas)
-                t.execute("UPDATE documents SET status = 'parsed', stage = NULL, updated_at = ? WHERE id = ?",
-                          (db.now_iso(), doc["id"]))
+                t.execute("UPDATE documents SET status = 'parsed', stage = NULL, parser_version = ?, updated_at = ? "
+                          "WHERE id = ?", (PARSER_VERSION, db.now_iso(), doc["id"]))
             stats["parsed"] += 1
         except Exception as e:
             mark_failed(doc["id"], "parse", f"{type(e).__name__}: {e}")

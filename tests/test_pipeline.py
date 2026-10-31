@@ -115,6 +115,40 @@ def test_restart_does_not_reembed_and_snapshot_recovers(monkeypatch):
     assert len(get_index(version).ids) == 4
 
 
+def test_parser_upgrade_reparses_stored_text_without_downloading_or_reembedding(monkeypatch):
+    conn = FakeConnector("a", {"py": {"version": "1", "content": PREP_MD},
+                               "exp": {"version": "1", "content": EXPERIENCE_MD, "kind": "experience"}})
+    sync_source("a", conn)
+    _run_stages()
+    c = db.conn()
+    before = {r[0] for r in c.execute("SELECT id FROM chunks")}
+    c.execute("UPDATE documents SET parser_version = 'rules-v0'")
+    conn.fetched.clear()
+    calls = []
+    real = embedder_mod.get_embedder()
+    with monkeypatch.context() as m:
+        m.setattr(real, "embed_passages", lambda texts: calls.append(len(texts)) or np.zeros((0, 64)))
+        assert stages.parse_stage(100)["reparse_queued"] == 2
+        tagging.rule_tag_stage()
+        stages.merge_stage()
+        st = index_stage(100)
+    assert conn.fetched == [] and calls == [] and st["embedded"] == 0 and st["doc_chunks_kept"] >= 1
+    assert {r[0] for r in c.execute("SELECT id FROM chunks")} == before
+    assert c.execute("SELECT COUNT(*) FROM documents WHERE status = 'indexed'").fetchone()[0] == 2
+    assert stages.parse_stage(100)["reparse_queued"] == 0
+
+
+def test_taxonomy_change_retags_rule_tags_and_keeps_llm_tags():
+    sync_source("a", FakeConnector("a", {"py": {"version": "1", "content": PREP_MD}}))
+    _run_stages()
+    c = db.conn()
+    llm_q, *rule_qs = [r[0] for r in c.execute("SELECT id FROM questions ORDER BY id")]
+    c.execute("UPDATE questions SET tag_status = 'llm' WHERE id = ?", (llm_q,))
+    c.execute("UPDATE questions SET tag_version = 0")
+    assert tagging.rule_tag_stage()["rule_tagged"] == len(rule_qs)
+    assert tagging.rule_tag_stage()["rule_tagged"] == 0
+
+
 def test_failures_go_to_dead_letter_after_max_attempts(monkeypatch):
     sync_source("a", FakeConnector("a", {"py": {"version": "1", "content": PREP_MD}}))
     doc_id = db.conn().execute("SELECT id FROM documents").fetchone()[0]

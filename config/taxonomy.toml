@@ -1,8 +1,11 @@
 # Two levels: a category (exactly one per question) and keyword tags (any number).
 # Aliases are matched case-insensitively on word boundaries; the tag key itself is always an alias.
 # Keep aliases unambiguous: "go" alone would match ordinary English, so Go is matched by "golang", "goroutine", ...
+# Concepts shared by several languages ("decorator", "closure", "coroutines", "hooks") are not aliases: the language name
+# (or the source hint, or the LLM tagger) tags those questions.
+# Bump `version` after changing aliases: rule-tagged questions are tagged again (LLM tags are kept).
 
-version = 1
+version = 2
 
 # Names accepted from models and users (resolve only), never matched in text because they are ordinary words.
 [synonyms]
@@ -67,19 +70,19 @@ oop = ["object-oriented", "object oriented", "oop", "inheritance", "polymorphism
 design-patterns = ["design pattern", "design patterns", "singleton", "factory pattern", "observer pattern", "dependency injection"]
 
 [tags.language]
-python = ["python", "gil", "asyncio", "decorator", "decorators", "generator", "generators", "list comprehension", "pep 8", "cpython"]
+python = ["python", "gil", "asyncio", "list comprehension", "pep 8", "cpython"]
 java = ["java", "jvm", "jdk", "jre", "hashmap in java", "java collections", "garbage collector in java", "spring boot"]
 golang = ["goroutine", "goroutines", "go channel", "go channels", "go routine", "go language", "go programming"]
-javascript = ["javascript", "js", "closure", "closures", "event loop", "promise", "promises", "hoisting", "prototype", "ecmascript", "es6"]
+javascript = ["javascript", "js", "event loop", "promise", "promises", "hoisting", "prototype chain", "prototypal inheritance", "ecmascript", "es6"]
 typescript = ["typescript", "ts generics", "type narrowing"]
 cpp = ["c++", "cpp", "stl", "raii", "smart pointer", "smart pointers", "move semantics"]
-rust = ["rust", "borrow checker", "ownership and borrowing", "lifetimes"]
+rust = ["rust", "borrow checker", "ownership and borrowing"]
 csharp = ["c#", "csharp", ".net", "linq"]
-kotlin = ["kotlin", "coroutines"]
+kotlin = ["kotlin"]
 swift = ["swift", "swiftui"]
 
 [tags.framework]
-react = ["react", "reactjs", "jsx", "hooks", "usestate", "useeffect", "virtual dom", "redux"]
+react = ["react", "reactjs", "jsx", "usestate", "useeffect", "virtual dom", "redux"]
 vue = ["vue", "vuejs", "vue.js", "vuex", "pinia"]
 angular = ["angular", "angularjs", "rxjs"]
 nodejs = ["node.js", "nodejs", "node js", "express.js", "expressjs", "npm"]

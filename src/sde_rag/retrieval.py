@@ -6,6 +6,7 @@ can_read before anything reaches a prompt.
 
 import json
 import logging
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -16,6 +17,7 @@ from sde_rag.index.embedder import get_embedder
 from sde_rag.index.vectors import get_index
 from sde_rag.index.versions import check_model
 from sde_rag.settings import section
+from sde_rag.taxonomy import taxonomy
 from sde_rag.text import truncate
 
 log = logging.getLogger("sde_rag.retrieval")
@@ -28,14 +30,27 @@ class Hit:
     ranks: dict[str, int] = field(default_factory=dict)
 
 
-def rrf(rankings: dict[str, list[int]], k: int = 60) -> list[Hit]:
+def rrf(rankings: dict[str, list], k: int = 60) -> list[Hit]:
+    """Each ranking is a list of ids (rank = position) or of (id, rank) pairs, where tied items share a rank."""
     scores: dict[int, float] = defaultdict(float)
     ranks: dict[int, dict[str, int]] = defaultdict(dict)
     for name, ids in rankings.items():
-        for rank, cid in enumerate(ids, 1):
+        for pos, item in enumerate(ids, 1):
+            cid, rank = item if isinstance(item, tuple) else (item, pos)
             scores[cid] += 1.0 / (k + rank)
             ranks[cid][name] = rank
     return [Hit(cid, s, ranks[cid]) for cid, s in sorted(scores.items(), key=lambda kv: -kv[1])]
+
+
+def dense_ranks(rows: list[tuple[int, float]]) -> list[tuple[int, int]]:
+    """(id, value) sorted by value descending -> (id, rank); equal values share a rank."""
+    out, rank, last = [], 0, None
+    for cid, value in rows:
+        value = round(value or 0.0, 6)
+        if value != last:
+            rank, last = rank + 1, value
+        out.append((cid, rank))
+    return out
 
 
 def hybrid(principal: Principal, queries: list[str], *, kinds: list[str] | None = None, category: str | None = None,
@@ -123,12 +138,35 @@ def load_context(principal: Principal, hits: list[Hit], limit: int, *, answer_ch
     return items
 
 
+# Every item in the bank is an interview question: these words in a topic request carry no topic and only match
+# headings such as "... Interview Questions".
+_TOPIC_FILLER = re.compile(
+    r"\b(most|very|commonly|common|frequently|often|typical|typically|popular|top|important|"
+    r"asked|ask|interview|interviews|question|questions|topic|topics|prep|preparation|technical|"
+    r"for|of|in|the|and|about|what|which|are|is)\b|常见|常问|高频|经常|面试题|面试|题目|问题|有哪些|哪些",
+    re.I)
+
+
+def topic_terms(query: str) -> str:
+    return re.sub(r"\s+", " ", _TOPIC_FILLER.sub(" ", query)).strip(" ,.?？，。")
+
+
 def topic_questions(principal: Principal, queries: list[str], *, category: str | None, tags: list[str] | None,
                     k: int, trace: dict | None = None) -> list[dict]:
-    """Common questions of a topic: relevance to the request fused with how often the question shows up."""
-    relevant = hybrid(principal, queries, kinds=["question"], category=category, tags=tags, k=max(k * 4, 100),
-                      trace=trace)
-    rankings = {"relevance": [h.chunk_id for h in relevant]}
+    """Common questions of a topic: relevance to the topic fused with how often the question shows up and, for
+    tags, how dedicated its source is to them (a Python question bank beats a Python heading in an ML file)."""
+    terms = list(dict.fromkeys(t for t in (topic_terms(q) for q in queries) if t)) or list(tags or []) or queries
+    # "Python questions" under the python tag: the filter already is the topic, and matching the word "Python"
+    # would only favour questions that repeat it.
+    only_tags = bool(tags) and all(taxonomy().resolve(t) in tags for t in terms)
+    if trace is not None:
+        trace["topic_terms"] = terms
+        trace["relevance_list"] = not only_tags
+    rankings: dict[str, list[int]] = {}
+    if not only_tags:
+        relevant = hybrid(principal, terms, kinds=["question"], category=category, tags=tags, k=max(k * 4, 100),
+                          trace=trace)
+        rankings["relevance"] = [h.chunk_id for h in relevant]
     if category or tags:
         version = check_model()
         where, args = fts.filter_sql(kinds=["question"], category=category,
@@ -139,14 +177,29 @@ def topic_questions(principal: Principal, queries: list[str], *, category: str |
                           f"qt.tag IN ({','.join('?' * len(tags))}))")
             args += list(tags)
         rows = db.conn().execute(
-            f"SELECT c.id FROM chunks c JOIN questions q ON q.id = c.question_id WHERE c.index_version = ?{where}"
-            f"{tag_clause} ORDER BY q.heat DESC, q.mention_count DESC LIMIT ?", [version, *args, k * 4]).fetchall()
-        rankings["heat"] = [r[0] for r in rows]
+            f"SELECT c.id, q.heat FROM chunks c JOIN questions q ON q.id = c.question_id WHERE c.index_version = ?"
+            f"{where}{tag_clause} ORDER BY q.heat DESC LIMIT ?", [version, *args, 5000]).fetchall()
+        ranked = dense_ranks([(r[0], r[1]) for r in rows])
+        # Cut between two heat values, never inside a tie: a cut inside would favour an arbitrary part of it.
+        cut = next((i for i in range(k * 4, len(ranked)) if ranked[i][1] != ranked[i - 1][1]), len(ranked))
+        rankings["heat"] = ranked[:cut]
+        if tags:
+            marks = ",".join("?" * len(tags))
+            rows = db.conn().execute(
+                f"WITH focus AS (SELECT m.doc_id, AVG(EXISTS (SELECT 1 FROM question_tags qt WHERE "
+                f"qt.question_id = m.question_id AND qt.tag IN ({marks}))) AS share FROM question_mentions m "
+                f"GROUP BY m.doc_id) "
+                f"SELECT c.id FROM chunks c JOIN questions q ON q.id = c.question_id "
+                f"JOIN question_mentions m ON m.question_id = q.id JOIN focus f ON f.doc_id = m.doc_id "
+                f"WHERE c.index_version = ?{where}{tag_clause} GROUP BY c.id "
+                f"ORDER BY MAX(f.share) DESC, q.heat DESC, MIN(m.ordinal) LIMIT ?",
+                [*tags, version, *args, k * 4]).fetchall()
+            rankings["focus"] = [r[0] for r in rows]
     else:
         heat = {r["id"]: r["heat"] for r in db.conn().execute(
             f"SELECT c.id, q.heat FROM chunks c JOIN questions q ON q.id = c.question_id "
             f"WHERE c.id IN ({','.join('?' * len(rankings['relevance'])) or 'NULL'})", rankings["relevance"])}
-        rankings["heat"] = sorted(heat, key=lambda cid: -heat[cid])
+        rankings["heat"] = dense_ranks(sorted(heat.items(), key=lambda kv: -(kv[1] or 0.0)))
     fused = rrf(rankings, int(section("query").get("rrf_k", 60)))
     return load_context(principal, fused, k, answer_chars=300, trace=trace)
 

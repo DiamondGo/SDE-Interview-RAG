@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from sde_rag import db
+from sde_rag import db, retrieval
+from sde_rag.auth import Principal
 from sde_rag.graphs import ingest as ingest_graph
 from sde_rag.graphs import query as query_graph
 from sde_rag.pipeline import stages, tagging
@@ -77,6 +78,51 @@ def test_solve_flow_streams_and_keeps_only_valid_citations():
     assert [c["label"] for c in out["citations"]] == [label]
     log = db.conn().execute("SELECT intent, degraded, trace FROM query_logs").fetchone()
     assert log["intent"] == "solve" and json.loads(log["trace"])["invalid_citations"] == ["Q99999"]
+
+
+def test_a_specific_question_routed_as_topic_is_answered():
+    _index()
+    gen = FakeBackend("gen", stream_script=["Threads share memory; processes do not."])
+    make_registry({"router": {"backend": "r"}, "generator": {"backend": "gen", "stream": True}},
+                  {"r": FakeBackend("r", structured=_router("topic", ["process vs thread"])), "gen": gen})
+    out = query_graph.graph.invoke({"question": "What is the difference between a process and a thread?"})
+    assert out["intent"] == "solve" and out["answer"].startswith("Threads share memory")
+    trace = json.loads(db.conn().execute("SELECT trace FROM query_logs").fetchone()[0])
+    assert trace["intent_corrected"] == "topic->solve"
+    out = query_graph.graph.invoke({"question": "Go 面试常问哪些并发问题？"})
+    assert out["intent"] == "topic"
+
+
+def test_topic_list_items_citing_only_unknown_labels_are_dropped():
+    _index()
+    label = _gil_label()
+    composer = FakeBackend("c", stream_script=[f"## Python\n- What is the GIL? [{label}]\n",
+                                               "- Write a lazy generator pipeline. [Q99999]\n",
+                                               "Read more about generators [Q99998]."])
+    make_registry({"router": {"backend": "r"}, "composer": {"backend": "c", "stream": True}},
+                  {"r": FakeBackend("r", structured=_router("topic", ["python interview questions"], ["python"])),
+                   "c": composer})
+    out = query_graph.graph.invoke({"question": "Common Python questions"})
+    assert f"[{label}]" in out["answer"] and "lazy generator" not in out["answer"]
+    assert "Read more about generators." in out["answer"]    # prose keeps its words, loses the label
+
+
+def test_topic_browse_prefers_sources_dedicated_to_the_tag():
+    ml = "# ML Coding Interview Questions\n## Deep learning\n" + "".join(
+        f"### What does activation {i} do to gradients?\nIt saturates.\n" for i in range(12)) + "## Utilities\n" + "".join(
+        f"### How do you compute loss {i} in Python without a Python loop?\nPython: vectorise.\n" for i in range(4))
+    sync_source("b", FakeConnector("b", {"ml": {"version": "1", "content": ml, "origin": "repo/b"}}))
+    sync_source("a", FakeConnector("a", {"py": {"version": "1", "content": PREP_MD, "origin": "repo/a",
+                                                "hints": {"category": "language", "tags": ["python"]}}}))
+    stages.clean_stage(10)
+    stages.parse_stage(10)
+    tagging.rule_tag_stage()
+    stages.merge_stage()
+    index_stage(10)
+    assert retrieval.topic_terms("common Python interview questions") == "Python"
+    items = retrieval.topic_questions(Principal(user_id="t"), ["common Python interview questions"],
+                                      category=None, tags=["python"], k=3)
+    assert [i["source"] for i in items] == ["repo/a"] * 3
 
 
 def test_topic_flow_lists_questions_and_falls_back_to_a_table():

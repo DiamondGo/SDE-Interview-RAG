@@ -4,7 +4,7 @@
 
 Milestones are defined in [DESIGN.md](DESIGN.md) (section 12). Each milestone is reviewed before the next starts.
 
-## Milestone 1: skeleton and minimal loop — done, in review
+## Milestone 1: skeleton and minimal loop — accepted (2026-10-31)
 
 Delivered:
 
@@ -33,7 +33,36 @@ Delivered:
 First real ingest (2026-10-31): 486 documents (314 GitHub files, 150 dev.to articles, 23 Hacker News
 discussions), 6,535 distinct questions, 7,585 chunks embedded with `intfloat/multilingual-e5-large`.
 
+Acceptance (2026-10-31), against the criteria in DESIGN.md section 12:
+
+| Criterion | Result |
+|---|---|
+| "Python 常见面试题" in the UI returns a cited list | Pass: 27 questions from Python question banks, every item cited, no invalid citations (local model, about 22 s) |
+| A specific question returns a cited answer | Pass: "如何设计一个限流器（rate limiter）？" (gateway model, 35 s) and "What is the difference between a process and a thread?" in the web UI (21 s) |
+| A restart does not re-embed anything | Pass: the UI and the CLI load the vector snapshot; a re-index of all 521 documents kept all 1,395 document chunks and embedded nothing |
+| Two runs in a row: the second downloads nothing again | Pass: two forced runs (all sources listed, intervals ignored): 0 duplicate downloads; GitHub repositories answered 304 for unchanged commits; the second run downloaded 0 documents and embedded 0 chunks in 27 s |
+
+Fixed during acceptance:
+
+- Invented topic-list items: a list line citing only labels outside the context is now dropped, not just stripped
+  of its label; the CLI prints the verified answer when it differs from the streamed one.
+- Topic ranking: generic request words ("common", "interview questions", "常见", "面试题") no longer match
+  headings such as "... Interview Questions"; a "focus" ranking prefers sources dedicated to the requested tag;
+  tied heat values share a rank in the fusion.
+- Rule tags: words shared by several languages ("decorator", "generator", "closure", "hooks", "coroutines") are no
+  longer aliases of one language; rule tags are made again when the taxonomy version changes.
+- Parsing: "— Difficulty: Easy" is stored as difficulty, not as part of the question; first-person blog headings
+  ("What I took away") are not questions. Documents parsed by an older parser are parsed again from the stored
+  text (no download), and unchanged document chunks keep their embeddings.
+- Routing: a message that is one specific question is answered even when the router labels it a topic request.
+
+After acceptance: 532 documents (521 indexed), 6,633 distinct questions, 8,028 embedded chunks; 1,200 questions
+tagged by the LLM.
+
 Known limitations, planned for later milestones:
+
+- "Common" can only be measured by exact repeats until near-duplicates are merged: the bank holds eight phrasings
+  of "what are generators", each counted once, so a topic list leans on source focus and document order.
 
 - Questions are merged only when their normalized text is identical (near-duplicates: milestone 2).
 - Interview-experience posts are indexed as text chunks; questions are extracted from them only where they are

@@ -16,7 +16,9 @@ def router_messages(question: str, history: list[dict]) -> list[tuple[str, str]]
 
 intent:
   - topic: wants the common interview questions of a direction or keyword ("Go 面试常问什么", "common React questions")
-  - solve: asks how to answer or solve one specific question or problem ("如何设计限流器", "explain the GIL")
+  - solve: asks how to answer or solve one specific question or problem ("如何设计限流器", "explain the GIL").
+    A message that is itself an interview question ("What is the difference between a process and a thread?") is
+    solve, even when it names a broad area; topic is only for requests for a list or overview of questions.
   - experience: asks what interviews at a company / for a role are like, or for interview experiences (面经)
   - out_of_scope: unrelated to software-engineering interviews
 language: "zh" if the user writes Chinese, else "en"

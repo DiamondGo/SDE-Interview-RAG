@@ -41,16 +41,22 @@ def cmd_query(args) -> int:
     from sde_rag.runner import QueryService, query_service
     filters = {"category": args.category, "tags": args.tags.split(",") if args.tags else None}
     stream = query_service().stream(QueryService.new_thread(), args.question, {k: v for k, v in filters.items() if v})
+    streamed = ""
     for kind, payload in stream:
         if kind == "event":
             if payload["type"] == "token":
+                streamed += payload["text"]
                 print(payload["text"], end="", flush=True)
             elif payload["type"] == "reset":
+                streamed = ""
                 print("\n[--- discarded partial answer ---]", flush=True)
             elif payload["type"] == "status":
                 print(f"[{payload['text']}]", file=sys.stderr, flush=True)
         else:
             print("\n")
+            final = payload.get("answer") or ""
+            if final.strip() != streamed.strip():
+                print(f"[--- verified answer ---]\n{final}\n")
             if payload.get("degraded"):
                 print("[degraded answer]", file=sys.stderr)
             for c in payload.get("citations") or []:

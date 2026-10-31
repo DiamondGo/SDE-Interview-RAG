@@ -4,6 +4,32 @@ from sde_rag.taxonomy import rule_tags, taxonomy
 from sde_rag.text import clean_question, question_hash
 
 
+def test_difficulty_label_is_not_part_of_the_question():
+    md = """# ML coding
+1. **How would you normalize each row of a tensor without using a Python loop?** — **Difficulty:** Easy
+2. **Why is averaging F1 across batches usually incorrect?** (Difficulty: Medium)
+3. **What does the difficulty of a problem depend on?**
+"""
+    qas = parse_markdown_qa(md)
+    assert [(q.question, q.difficulty) for q in qas] == [
+        ("How would you normalize each row of a tensor without using a Python loop?", "easy"),
+        ("Why is averaging F1 across batches usually incorrect?", "medium"),
+        ("What does the difficulty of a problem depend on?", None)]
+
+
+def test_first_person_blog_headings_are_not_questions():
+    for heading in ["What I took away", "How we scaled Postgres", "What my interviewer asked", "Why I left"]:
+        assert not is_question(heading), heading
+    assert is_question("What did I get wrong in the design round?")
+    assert is_question("What is a closure")
+
+
+def test_shared_concepts_do_not_imply_a_language():
+    assert "python" not in rule_tags("What are the class decorators in Angular?")
+    assert "javascript" not in rule_tags("How do closures work in Swift?")
+    assert "python" in rule_tags("Explain decorators in Python.")
+
+
 def test_heading_questions_with_subheadings_in_answer():
     md = """# 100 Python Questions
 #### You can also find all answers here
