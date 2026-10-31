@@ -1,0 +1,110 @@
+# Example model configuration. Copy it to config/agents.toml (not committed) and adapt it to your machine:
+#   cp config/agents.example.toml config/agents.toml
+# Single fields can also be overridden with environment variables:
+#   SDE_BACKEND__<NAME>__<FIELD>=..., SDE_ROLE__<NAME>__<FIELD>=..., SDE_MODEL__EMBEDDER__<FIELD>=...
+# Secrets are never written here: *_env fields name the environment variable that holds the value.
+# The model names below are examples; use whatever your endpoints serve.
+
+[backends.local]
+type = "openai_compat"
+base_url_env = "LOCAL_BASE_URL"
+api_key_env = "LOCAL_API_KEY"
+model = "Qwen3.8-Flash-Next"
+max_concurrency = 1          # single-slot server: queue in-process, not on the server
+timeout_s = 180
+max_retries = 1              # the server keeps working on abandoned requests; retries only pile up
+structured_method = "function_calling"
+health_probe = true
+[backends.local.thinking_off]
+reasoning_effort = "none"
+
+[backends.gateway]
+type = "openai_compat"
+base_url_env = "GATEWAY_BASE_URL"
+api_key_env = "GATEWAY_API_KEY"
+model = "gpt-6.1-sol"
+use_responses_api = true
+rate_limit_rps = 0.5
+max_concurrency = 2
+timeout_s = 180
+max_retries = 2
+structured_method = "function_calling"
+
+[backends.claude_sonnet]
+type = "cli"
+cli = "claude"
+model = "claude-sonnet-5-5"
+timeout_s = 300
+max_concurrency = 1
+daily_call_budget = 120
+
+# ---- roles -------------------------------------------------------------------------------
+
+[roles.router]               # query understanding: intent, filters, English search terms
+backend = "local"
+thinking = false
+timeout_s = 60
+max_tokens = 800
+
+[roles.tagger]
+backend = "local"
+thinking = false
+timeout_s = 180
+max_tokens = 4000
+
+[roles.composer]             # groups the common questions of a topic into a readable list
+backend = "local"
+thinking = false
+stream = true
+first_token_timeout_s = 90
+idle_timeout_s = 60
+max_total_s = 300
+max_tokens = 3000
+
+[roles.generator]
+backend = "gateway"
+stream = true
+first_token_timeout_s = 30
+idle_timeout_s = 30
+max_total_s = 240
+max_tokens = 4000
+fallbacks = [{ backend = "local", thinking = true, first_token_timeout_s = 90, idle_timeout_s = 60, max_total_s = 480 }]
+
+[roles.extractor]            # M2: questions out of interview-experience posts
+backend = "local"
+thinking = false
+timeout_s = 180
+max_tokens = 4000
+
+[roles.grader]               # M2: is the retrieved context enough?
+backend = "local"
+thinking = false
+timeout_s = 60
+max_tokens = 400
+
+[roles.dedup_judge]          # M2: are two questions the same question?
+backend = "local"
+thinking = false
+timeout_s = 60
+max_tokens = 400
+
+[roles.reviewer]             # M2: is the domain knowledge and the solution correct?
+backend = "claude_sonnet"
+timeout_s = 300
+
+[roles.judge]                # M3: is the answer supported by its context?
+backend = "claude_sonnet"
+timeout_s = 300
+
+# ---- non-LLM models -----------------------------------------------------------------------
+
+[models.embedder]
+provider = "fastembed"
+name = "intfloat/multilingual-e5-large"
+query_prefix = "query: "
+passage_prefix = "passage: "
+batch_size = 16
+
+[models.reranker]            # M2
+provider = "fastembed"
+name = "BAAI/bge-reranker-v2-m3-int8"

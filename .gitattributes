@@ -1,0 +1,2 @@
+dataset/*.db filter=lfs diff=lfs merge=lfs -text
+dataset/raw/** filter=lfs diff=lfs merge=lfs -text

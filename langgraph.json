@@ -1,0 +1,9 @@
+{
+  "python_version": "3.12",
+  "dependencies": ["."],
+  "graphs": {
+    "ingest": "./src/sde_rag/graphs/ingest.py:graph",
+    "query": "./src/sde_rag/graphs/query.py:graph",
+    "evaluate": "./src/sde_rag/graphs/evaluate.py:graph"
+  }
+}

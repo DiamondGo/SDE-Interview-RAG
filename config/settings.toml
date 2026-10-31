@@ -1,0 +1,43 @@
+# Machine-specific overrides go in config/settings.local.toml (not committed).
+
+data_dir = "data"
+# Extra dotenv files to load (after the project's .env), e.g. a shared file holding API keys.
+env_files = []
+
+[notify]
+channels = ["log"]                       # any of: log, desktop, telegram
+telegram_token_env = "TELEGRAM_BOT_TOKEN"
+telegram_chat_env = "TELEGRAM_CHAT_ID"
+repeat_hours = 24                        # an ongoing problem is announced again after this long
+
+[http]
+user_agent = "SDE-Interview-RAG/0.1 (personal interview-prep research)"
+timeout_s = 30
+default_delay_s = 2.0                    # minimum seconds between requests to the same host
+max_attempts = 4
+
+[ingest]
+doc_limit_per_run = 300                  # documents taken through clean/parse per run
+llm_tag_limit_per_run = 600              # questions tagged by the LLM per run
+tag_batch = 20
+tag_min_batch = 5
+lock_ttl_s = 21600
+max_attempts = 5                         # a document failing this many times goes to the dead letter
+
+[index]
+chunker_version = 1
+doc_chunk_chars = 1800
+question_answer_chars = 600             # answer text embedded with each question (FTS indexes 4000)
+embed_commit_every = 64
+
+[query]
+retrieve_k = 50
+context_k = 6
+topic_k = 30
+rrf_k = 60
+max_question_chars = 2000
+history_turns = 4
+
+[ui]
+host = "127.0.0.1"
+port = 7860

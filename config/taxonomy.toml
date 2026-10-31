@@ -1,0 +1,142 @@
+# Two levels: a category (exactly one per question) and keyword tags (any number).
+# Aliases are matched case-insensitively on word boundaries; the tag key itself is always an alias.
+# Keep aliases unambiguous: "go" alone would match ordinary English, so Go is matched by "golang", "goroutine", ...
+
+version = 1
+
+# Names accepted from models and users (resolve only), never matched in text because they are ordinary words.
+[synonyms]
+go = "golang"
+k8s = "kubernetes"
+ml = "ml-fundamentals"
+dl = "deep-learning"
+js = "javascript"
+ts = "typescript"
+node = "nodejs"
+dsa = "array"
+system-design = "scalability"
+devops = "ci-cd"
+testing = "test-automation"
+
+[categories]
+coding = "算法与数据结构"
+cs_fundamentals = "计算机基础"
+language = "编程语言"
+framework = "框架与前端"
+system_design = "系统设计"
+ai_ml = "AI 与机器学习"
+automation = "自动化、DevOps 与测试"
+behavioral = "行为面试"
+
+[tags.coding]
+array = ["arrays", "subarray"]
+string = ["strings", "substring", "palindrome", "anagram"]
+hash-map = ["hash map", "hashmap", "hash table", "hashtable", "dictionary lookup"]
+two-pointers = ["two pointers", "two-pointer"]
+sliding-window = ["sliding window"]
+binary-search = ["binary search"]
+linked-list = ["linked list", "linkedlist"]
+stack-queue = ["stack data structure", "queue data structure", "deque", "monotonic stack", "monotonic queue"]
+tree = ["binary tree", "bst", "binary search tree", "trees", "tree traversal", "inorder", "preorder", "postorder"]
+graph = ["graph", "graphs", "topological sort", "dijkstra", "shortest path"]
+bfs-dfs = ["bfs", "dfs", "breadth-first", "depth-first", "breadth first search", "depth first search"]
+dynamic-programming = ["dynamic programming", "dp", "memoization", "knapsack"]
+greedy = ["greedy"]
+heap = ["heap", "priority queue", "min-heap", "max-heap"]
+backtracking = ["backtracking", "permutations", "combinations", "n-queens"]
+trie = ["trie", "prefix tree"]
+union-find = ["union find", "union-find", "disjoint set"]
+sorting = ["sorting", "quicksort", "merge sort", "mergesort", "heapsort", "bubble sort"]
+bit-manipulation = ["bit manipulation", "bitwise", "xor"]
+recursion = ["recursion", "recursive"]
+complexity = ["big o", "big-o", "time complexity", "space complexity"]
+design-data-structure = ["lru cache", "lfu cache", "lru", "design a data structure"]
+
+[tags.cs_fundamentals]
+operating-system = ["operating system", "kernel", "system call", "syscall", "scheduling", "virtual memory", "paging"]
+process-thread = ["process vs thread", "processes and threads", "child process", "multithreading", "multi-threading", "thread safety", "thread pool", "context switch", "context switching"]
+concurrency = ["concurrency", "concurrent", "mutex", "semaphore", "deadlock", "race condition", "lock-free", "synchronization"]
+memory = ["memory management", "garbage collection", "memory leak", "stack and heap", "heap memory"]
+networking = ["tcp", "udp", "http", "https", "dns", "tls", "ssl", "osi model", "socket", "websocket", "rest api", "restful", "grpc"]
+database = ["database", "databases", "rdbms", "nosql", "database normalization", "acid", "transaction", "transactions", "isolation level"]
+sql = ["sql", "sql join", "inner join", "left join", "joins", "query optimization", "stored procedure", "postgresql", "mysql"]
+indexing = ["database index", "clustered index", "indexing", "b-tree", "b+ tree"]
+redis = ["redis"]
+security = ["xss", "csrf", "sql injection", "authentication", "authorization", "oauth", "jwt", "encryption", "hashing passwords"]
+oop = ["object-oriented", "object oriented", "oop", "inheritance", "polymorphism", "encapsulation", "abstraction", "solid principles"]
+design-patterns = ["design pattern", "design patterns", "singleton", "factory pattern", "observer pattern", "dependency injection"]
+
+[tags.language]
+python = ["python", "gil", "asyncio", "decorator", "decorators", "generator", "generators", "list comprehension", "pep 8", "cpython"]
+java = ["java", "jvm", "jdk", "jre", "hashmap in java", "java collections", "garbage collector in java", "spring boot"]
+golang = ["goroutine", "goroutines", "go channel", "go channels", "go routine", "go language", "go programming"]
+javascript = ["javascript", "js", "closure", "closures", "event loop", "promise", "promises", "hoisting", "prototype", "ecmascript", "es6"]
+typescript = ["typescript", "ts generics", "type narrowing"]
+cpp = ["c++", "cpp", "stl", "raii", "smart pointer", "smart pointers", "move semantics"]
+rust = ["rust", "borrow checker", "ownership and borrowing", "lifetimes"]
+csharp = ["c#", "csharp", ".net", "linq"]
+kotlin = ["kotlin", "coroutines"]
+swift = ["swift", "swiftui"]
+
+[tags.framework]
+react = ["react", "reactjs", "jsx", "hooks", "usestate", "useeffect", "virtual dom", "redux"]
+vue = ["vue", "vuejs", "vue.js", "vuex", "pinia"]
+angular = ["angular", "angularjs", "rxjs"]
+nodejs = ["node.js", "nodejs", "node js", "express.js", "expressjs", "npm"]
+django = ["django"]
+flask-fastapi = ["flask", "fastapi"]
+spring = ["spring", "spring boot", "spring framework"]
+frontend = ["html", "css", "dom", "browser", "web performance", "accessibility", "responsive design", "flexbox"]
+android = ["android"]
+ios = ["ios", "uikit"]
+
+[tags.system_design]
+url-shortener = ["url shortener", "tinyurl", "bit.ly", "pastebin"]
+rate-limiter = ["rate limiter", "rate limiting", "throttling"]
+news-feed = ["news feed", "twitter timeline", "design twitter"]
+chat-system = ["chat system", "messaging system", "whatsapp", "chat application"]
+notification = ["notification system", "push notification"]
+search-system = ["search engine", "typeahead", "autocomplete", "web crawler"]
+payment = ["payment system", "payments"]
+cache = ["cache", "caching", "cdn", "memcached", "cache invalidation"]
+message-queue = ["message queue", "kafka", "rabbitmq", "pub/sub", "pubsub", "event streaming"]
+sharding = ["sharding", "partitioning", "consistent hashing"]
+replication = ["replication", "leader election", "consensus", "raft", "paxos"]
+consistency = ["cap theorem", "eventual consistency", "strong consistency", "consistency model"]
+load-balancer = ["load balancer", "load balancing", "reverse proxy"]
+microservices = ["microservice", "microservices", "service mesh", "api gateway"]
+scalability = ["scalability", "horizontal scaling", "vertical scaling", "high availability"]
+ood = ["object-oriented design", "low level design", "low-level design", "lld", "class diagram"]
+
+[tags.ai_ml]
+ml-fundamentals = ["machine learning", "overfitting", "underfitting", "bias-variance", "regularization", "cross-validation", "gradient descent", "loss function"]
+deep-learning = ["deep learning", "neural network", "neural networks", "cnn", "rnn", "lstm", "backpropagation", "dropout", "batch normalization"]
+llm = ["llm", "llms", "large language model", "large language models", "gpt", "tokenizer", "tokenization", "llm inference", "kv cache"]
+transformer = ["transformer", "transformers", "attention mechanism", "self-attention", "multi-head attention", "positional embedding", "positional encoding"]
+rag = ["rag", "retrieval-augmented", "retrieval augmented", "vector database", "embedding", "embeddings", "chunking", "reranking"]
+agents = ["ai agent", "ai agents", "llm agent", "agentic", "multi-agent", "tool calling", "function calling", "langgraph", "langchain"]
+fine-tuning = ["fine-tuning", "fine tuning", "lora", "qlora", "peft", "rlhf", "dpo", "sft"]
+prompt-engineering = ["prompt engineering", "prompting", "few-shot", "chain of thought", "chain-of-thought", "prompt injection"]
+evaluation = ["evaluation metrics", "precision and recall", "f1 score", "auc", "roc", "llm evaluation", "hallucination"]
+mlops = ["mlops", "model serving", "model deployment", "feature store", "model monitoring"]
+recommendation = ["recommendation system", "recommender system", "collaborative filtering", "ranking model"]
+
+[tags.automation]
+test-automation = ["test automation", "selenium", "playwright", "cypress", "pytest", "unit testing", "integration testing", "tdd", "test pyramid", "junit"]
+ci-cd = ["ci/cd", "ci cd", "continuous integration", "continuous delivery", "continuous deployment", "jenkins", "github actions", "ci pipeline", "deployment pipeline"]
+docker = ["docker", "dockerfile", "container", "containers", "docker compose"]
+kubernetes = ["kubernetes", "k8s", "kubectl", "pod", "pods", "helm"]
+terraform-iac = ["terraform", "infrastructure as code", "iac", "ansible", "cloudformation", "pulumi"]
+aws = ["aws", "ec2", "s3", "aws lambda", "amazon web services", "aws iam"]
+git = ["git", "git rebase", "git merge", "branching strategy"]
+linux = ["linux", "bash", "shell script", "shell scripting", "systemd", "cron"]
+sre-observability = ["sre", "observability", "monitoring", "prometheus", "grafana", "logging", "alerting", "incident"]
+scripting = ["scripting", "automation script", "automate"]
+
+[tags.behavioral]
+conflict = ["conflict with", "disagreement", "difficult coworker"]
+leadership = ["leadership", "mentoring", "led a team"]
+failure = ["biggest failure", "a time you failed", "biggest mistake"]
+ownership = ["ownership", "took initiative"]
+why-company = ["why do you want to work", "why this company", "why us"]
+career = ["career", "salary negotiation", "offer negotiation", "resume", "job search"]

@@ -1,0 +1,16 @@
+# Python / tooling
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.langgraph_api/
+
+# Secrets and machine-specific configuration (copy the *.example.toml files instead)
+.env
+config/agents.toml
+config/*.local.toml
+
+# Local working data: databases with usage records, logs, model cache, conversations.
+# The public dataset is published separately in dataset/ (see `sde-rag publish-data`).
+data/
+dataset/*.tmp

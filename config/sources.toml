@@ -1,0 +1,86 @@
+# Sources. Each [sources.<name>] is one connector instance; "type" picks the connector class.
+# interval_hours: minimum time between successful runs of this source.
+# delay_s: minimum seconds between requests to this source's hosts.
+# publish: false keeps a source's content out of the public dataset/ (set it for anything behind a login).
+
+[sources.github]
+type = "github_repos"
+enabled = true
+interval_hours = 12
+delay_s = 0.5
+token_env = "GITHUB_TOKEN"        # falls back to `gh auth token` when unset
+# hint: category/tags used when the rule tagger finds nothing more specific; the LLM tagger may override.
+repos = [
+  { repo = "sudheerj/javascript-interview-questions", include = ["README.md"], category = "language", tags = ["javascript"] },
+  { repo = "sudheerj/reactjs-interview-questions", include = ["README.md"], category = "framework", tags = ["react"] },
+  { repo = "sudheerj/angular-interview-questions", include = ["README.md"], category = "framework", tags = ["angular"] },
+  { repo = "sudheerj/vuejs-interview-questions", include = ["README.md"], category = "framework", tags = ["vue"] },
+  { repo = "h5bp/Front-end-Developer-Interview-Questions", include = ["src/questions/*.md"], category = "framework", tags = ["frontend"] },
+  { repo = "learning-zone/java-basics", include = ["README.md", "multithreading-questions.md", "collections-questions.md", "JDBC-questions.md"], category = "language", tags = ["java"] },
+  { repo = "learning-zone/python-basics", include = ["README.md"], category = "language", tags = ["python"] },
+  { repo = "learning-zone/nodejs-basics", include = ["README.md", "nodejs-faq.md"], category = "framework", tags = ["nodejs"] },
+  { repo = "Devinterview-io/python-interview-questions", include = ["README.md"], category = "language", tags = ["python"] },
+  { repo = "Devinterview-io/golang-interview-questions", include = ["README.md"], category = "language", tags = ["golang"] },
+  { repo = "Devinterview-io/java-interview-questions", include = ["README.md"], category = "language", tags = ["java"] },
+  { repo = "Devinterview-io/typescript-interview-questions", include = ["README.md"], category = "language", tags = ["typescript"] },
+  { repo = "Devinterview-io/rust-interview-questions", include = ["README.md"], category = "language", tags = ["rust"] },
+  { repo = "Devinterview-io/cpp-interview-questions", include = ["README.md"], category = "language", tags = ["cpp"] },
+  { repo = "Devinterview-io/c-sharp-interview-questions", include = ["README.md"], category = "language", tags = ["csharp"] },
+  { repo = "Devinterview-io/sql-interview-questions", include = ["README.md"], category = "cs_fundamentals", tags = ["sql"] },
+  { repo = "Devinterview-io/redis-interview-questions", include = ["README.md"], category = "cs_fundamentals", tags = ["redis"] },
+  { repo = "Devinterview-io/react-interview-questions", include = ["README.md"], category = "framework", tags = ["react"] },
+  { repo = "Devinterview-io/django-interview-questions", include = ["README.md"], category = "framework", tags = ["django"] },
+  { repo = "Devinterview-io/spring-interview-questions", include = ["README.md"], category = "framework", tags = ["spring"] },
+  { repo = "Devinterview-io/microservices-interview-questions", include = ["README.md"], category = "system_design", tags = ["microservices"] },
+  { repo = "Devinterview-io/data-structures-interview-questions", include = ["README.md"], category = "coding" },
+  { repo = "Devinterview-io/hash-table-data-structure-interview-questions", include = ["README.md"], category = "coding", tags = ["hash-map"] },
+  { repo = "Devinterview-io/tree-data-structure-interview-questions", include = ["README.md"], category = "coding", tags = ["tree"] },
+  { repo = "Devinterview-io/greedy-algorithms-interview-questions", include = ["README.md"], category = "coding", tags = ["greedy"] },
+  { repo = "Devinterview-io/sorting-algorithms-interview-questions", include = ["README.md"], category = "coding", tags = ["sorting"] },
+  { repo = "Devinterview-io/llms-interview-questions", include = ["README.md"], category = "ai_ml", tags = ["llm"] },
+  { repo = "Devinterview-io/deep-learning-interview-questions", include = ["README.md"], category = "ai_ml", tags = ["deep-learning"] },
+  { repo = "KalyanKS-NLP/LLM-Interview-Questions-and-Answers-Hub", include = ["Interview_QA/*.md"], category = "ai_ml", tags = ["llm"] },
+  { repo = "llmgenai/LLMInterviewQuestions", include = ["README.md"], category = "ai_ml", tags = ["llm"] },
+  { repo = "chiphuyen/ml-interviews-book", include = ["contents/*.md"], category = "ai_ml" },
+  { repo = "alirezadir/Machine-Learning-Interviews", include = ["src/*.md"], exclude = ["cn/*"], category = "ai_ml" },
+  { repo = "Devinterview-io/docker-interview-questions", include = ["README.md"], category = "automation", tags = ["docker"] },
+  { repo = "Devinterview-io/kubernetes-interview-questions", include = ["README.md"], category = "automation", tags = ["kubernetes"] },
+  { repo = "Devinterview-io/aws-interview-questions", include = ["README.md"], category = "automation", tags = ["aws"] },
+  { repo = "Devinterview-io/git-interview-questions", include = ["README.md"], category = "automation", tags = ["git"] },
+  { repo = "Devinterview-io/devops-interview-questions", include = ["README.md"], category = "automation" },
+  { repo = "bregman-arie/devops-exercises", include = ["README.md", "topics/*/README.md"], category = "automation" },
+  { repo = "trimstray/test-your-sysadmin-skills", include = ["README.md"], category = "automation", tags = ["linux"] },
+  { repo = "donnemartin/system-design-primer", include = ["solutions/system_design/*/README.md"], category = "system_design" },
+  { repo = "yangshun/tech-interview-handbook", include = ["apps/website/contents/*.md", "apps/website/contents/algorithms/*.md"] },
+]
+
+[sources.hn]
+type = "hn_algolia"
+enabled = true
+interval_hours = 12
+delay_s = 1.0
+queries = ["interview questions", "interview experience", "coding interview", "system design interview",
+           "technical interview", "leetcode", "onsite interview", "interview loop"]
+# Only stories whose title matches are kept ("interview with the CEO" is not interview prep).
+title_pattern = '(?i)(interview|leetcode|whiteboard|onsite|hiring process)'
+title_pattern_also = '(?i)(question|experience|coding|technical|system design|leetcode|engineer|developer|programmer|hiring|onsite|whiteboard|prep|loop|faang|ask hn)'
+min_points = 10
+settle_hours = 48          # wait until points and comments have mostly settled
+backfill_days = 365
+overlap_hours = 24
+max_comments = 40
+comment_chars = 15000
+per_run_limit = 150
+fetch_articles = true      # also fetch the linked article (robots.txt respected)
+
+[sources.devto]
+type = "devto"
+enabled = true
+interval_hours = 12
+delay_s = 1.0
+tags = ["interview", "interviewquestions", "codinginterview", "systemdesign"]
+min_reactions = 2
+settle_hours = 72          # reactions accumulate slowly; judge an article once it is three days old
+backfill_pages = 10        # 100 articles per page and tag on the first run
+overlap_hours = 24
+per_run_limit = 150
