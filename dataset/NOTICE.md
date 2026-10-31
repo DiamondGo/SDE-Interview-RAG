@@ -1,7 +1,8 @@
 # Dataset notice
 
-This directory holds interview questions, answers and interview-experience posts collected from public sources,
-and the database built from them (cleaned text, tags, search index, embeddings). It is published so that the
+This directory holds interview questions, answers and interview-experience posts collected from public sources
+(`raw/`). The database built from them (cleaned text, tags, search index, embeddings) is attached to the GitHub
+release named in `MANIFEST.json`; `sde-rag import-data` downloads and verifies it. Both are published so that the
 RAG system can be used without crawling everything again.
 
 **The content belongs to its authors.** Every document keeps its source URL (`documents.url`), and every

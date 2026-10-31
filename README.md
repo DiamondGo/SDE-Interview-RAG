@@ -52,15 +52,15 @@ Main properties:
 
 ## Setup
 
-Requires [uv](https://docs.astral.sh/uv/) and, to get the published dataset, [Git LFS](https://git-lfs.com/).
+Requires [uv](https://docs.astral.sh/uv/) and, to get the published raw files, [Git LFS](https://git-lfs.com/).
 
 ```bash
 git clone https://github.com/DiamondGo/SDE-Interview-RAG.git && cd SDE-Interview-RAG
-git lfs pull                                      # the published dataset (database and raw files)
+git lfs pull                                      # the published raw files (dataset/raw/)
 uv sync
 cp config/agents.example.toml config/agents.toml  # model configuration: edit for your endpoints
 cp .env.example .env                              # endpoint URLs and keys referenced by agents.toml
-uv run sde-rag import-data                        # start from the published dataset (optional)
+uv run sde-rag import-data                        # start from the published dataset: downloads the database (optional)
 uv run sde-rag doctor                             # configuration problems, and does every backend answer?
 ```
 
@@ -101,9 +101,17 @@ from its checkpoint.
 `data/` is the local working directory and is never committed: the working database (which also holds local
 usage records), raw downloads, the vector snapshot, LangGraph checkpoints, logs and the model cache.
 
-`dataset/` is the published dataset, stored with Git LFS. `uv run sde-rag publish-data` regenerates it from the
-working database, without local usage records and run logs and without sources marked `publish = false`.
-The collected content belongs to its authors; see [dataset/NOTICE.md](dataset/NOTICE.md).
+The published dataset has two parts. The raw files are in `dataset/raw/`, stored with Git LFS; they are named by
+content hash, so each file is stored once. The database (about 80 MB) is attached to a GitHub
+[release](https://github.com/DiamondGo/SDE-Interview-RAG/releases) as `rag.db.gz`, not committed: every version
+of a file in Git LFS stays on the server for good, while old releases can be deleted. `dataset/MANIFEST.json` names
+the release and the checksums; `sde-rag import-data` downloads the database and verifies it.
+
+`uv run sde-rag publish-data` regenerates the dataset from the working database, without local usage records and
+run logs and without sources marked `publish = false`. It uploads a new `dataset-*` release with the GitHub CLI
+(`gh`, signed in) and deletes all but the newest `[dataset] release_keep` of them; then commit `dataset/`.
+`--no-upload` only writes the files locally. The collected content belongs to its authors; see
+[dataset/NOTICE.md](dataset/NOTICE.md).
 
 ## Tests
 

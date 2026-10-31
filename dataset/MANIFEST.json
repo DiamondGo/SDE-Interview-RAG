@@ -1,27 +1,37 @@
 {
- "generated_at": "2026-10-31T22:09:19+00:00",
+ "generated_at": "2026-10-31T23:19:24+00:00",
  "index_version": "v1",
  "embed_model": "intfloat/multilingual-e5-large",
  "unpublished_sources": {},
  "questions_removed_with_them": 0,
- "raw_files": 486,
+ "raw_files": 532,
  "documents_by_source": {
-  "devto": 150,
+  "devto": 196,
   "github": 313,
   "hn": 23
  },
- "questions": 6535,
+ "questions": 6633,
  "questions_by_category": {
-  "automation": 2104,
-  "framework": 1456,
-  "language": 996,
-  "ai_ml": 731,
-  "cs_fundamentals": 521,
-  "none": 285,
-  "system_design": 198,
-  "coding": 190,
-  "behavioral": 54
+  "automation": 2059,
+  "framework": 1460,
+  "language": 999,
+  "ai_ml": 725,
+  "cs_fundamentals": 570,
+  "system_design": 263,
+  "behavioral": 225,
+  "coding": 200,
+  "none": 132
  },
- "chunks": 7585,
- "embeddings": 7585
+ "chunks": 8028,
+ "embeddings": 8028,
+ "database": {
+  "file": "rag.db",
+  "sha256": "351334e8715297a7d63bb9a7fc555b5ab917e6367346d10f47028c2aa43d971f",
+  "bytes": 82583552,
+  "release": "dataset-20261031-231926",
+  "asset": "rag.db.gz",
+  "asset_sha256": "0bf85f3bf53d05fdb3b2f43d74aac4945c50d44f6e649ec759fc7c611117422c",
+  "asset_bytes": 45677958,
+  "url": "https://github.com/DiamondGo/SDE-Interview-RAG/releases/download/dataset-20261031-231926/rag.db.gz"
+ }
 }

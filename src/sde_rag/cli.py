@@ -144,8 +144,13 @@ def cmd_stats(args) -> int:
 
 def cmd_publish_data(args) -> int:
     from sde_rag.pipeline.dataset import publish_data
-    print(json.dumps(publish_data(), ensure_ascii=False, indent=1))
-    print("\nNext: git add dataset && git commit -m 'Update dataset'  (dataset/ is stored with Git LFS)")
+    out = publish_data(upload=not args.no_upload)
+    print(json.dumps(out, ensure_ascii=False, indent=1))
+    if out["database"]["release"]:
+        print(f"\nUploaded release {out['database']['release']}. Next: git add dataset && git commit -m "
+              f"'Update dataset' && git push  (MANIFEST.json names the release; raw files use Git LFS)")
+    else:
+        print("\nLocal only: MANIFEST.json names no release. Do not commit it; run without --no-upload to publish.")
     return 0
 
 
@@ -190,9 +195,11 @@ def main(argv: list[str] | None = None) -> None:
     s.set_defaults(fn=cmd_agents)
     sub.add_parser("doctor", help="check configuration and that every backend answers").set_defaults(fn=cmd_doctor)
     sub.add_parser("stats", help="counts of documents, questions and chunks").set_defaults(fn=cmd_stats)
-    sub.add_parser("publish-data", help="write the public dataset/ (no local usage data, no unpublishable sources)"
-                   ).set_defaults(fn=cmd_publish_data)
-    s = sub.add_parser("import-data", help="start data/ from the published dataset/")
+    s = sub.add_parser("publish-data", help="publish the dataset (no local usage data, no unpublishable sources): "
+                       "the database to a GitHub release, raw files to dataset/")
+    s.add_argument("--no-upload", action="store_true", help="only write dataset/ locally")
+    s.set_defaults(fn=cmd_publish_data)
+    s = sub.add_parser("import-data", help="start data/ from the published dataset (downloads the database)")
     s.add_argument("--force", action="store_true", help="replace an existing working database")
     s.set_defaults(fn=cmd_import_data)
     s = sub.add_parser("ui", help="start the web UI")

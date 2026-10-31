@@ -27,7 +27,8 @@ Delivered:
   answers, citation verification, degraded answers when models fail.
 - Ingest graph with run keys, a database lock (taken over when its owner died), heartbeat, checkpoint resume.
 - A minimal evaluate graph (retrieval self-check), Gradio web UI with `/health`, CLI.
-- Public dataset export (`sde-rag publish-data`, Git LFS) without local usage data.
+- Public dataset export (`sde-rag publish-data`) without local usage data: raw files with Git LFS, the database as a
+  GitHub release asset (only the newest releases kept), downloaded and verified by `sde-rag import-data`.
 - Tests: unit tests without network; an integration test running the query graph in `langgraph dev`.
 
 First real ingest (2026-10-31): 486 documents (314 GitHub files, 150 dev.to articles, 23 Hacker News

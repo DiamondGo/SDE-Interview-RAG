@@ -43,15 +43,15 @@ query（网页界面 / 命令行 / 任何 LangGraph 客户端）
 
 ## 安装
 
-需要 [uv](https://docs.astral.sh/uv/)；要获取公开的数据集，还需要 [Git LFS](https://git-lfs.com/)。
+需要 [uv](https://docs.astral.sh/uv/)；要获取公开的原始文件，还需要 [Git LFS](https://git-lfs.com/)。
 
 ```bash
 git clone https://github.com/DiamondGo/SDE-Interview-RAG.git && cd SDE-Interview-RAG
-git lfs pull                                      # 公开的数据集（数据库和原始文件）
+git lfs pull                                      # 公开的原始文件（dataset/raw/）
 uv sync
 cp config/agents.example.toml config/agents.toml  # 模型配置：按你自己的服务修改
 cp .env.example .env                              # agents.toml 引用的服务地址和密钥
-uv run sde-rag import-data                        # 以公开数据集为起点（可选）
+uv run sde-rag import-data                        # 以公开数据集为起点：会下载数据库（可选）
 uv run sde-rag doctor                             # 检查配置问题，以及每个后端能否响应
 ```
 
@@ -88,8 +88,14 @@ uv run langgraph dev                      # 在 LangGraph Studio 里查看三个
 
 `data/` 是本机工作目录，永远不提交：工作数据库（里面也有本机的使用记录）、原始下载、向量快照、LangGraph 断点、日志和模型缓存。
 
-`dataset/` 是公开的数据集，用 Git LFS 存储。`uv run sde-rag publish-data` 从工作数据库重新生成它，去掉本机使用记录和运行日志，
-也去掉标记为 `publish = false` 的来源。收集的内容版权归原作者，见 [dataset/NOTICE.zh-CN.md](dataset/NOTICE.zh-CN.md)。
+公开的数据集分两部分。原始文件在 `dataset/raw/`，用 Git LFS 存储；文件按内容哈希命名，同一内容只存一次。
+数据库（约 80 MB）以 `rag.db.gz` 的形式放在 GitHub [release](https://github.com/DiamondGo/SDE-Interview-RAG/releases) 的附件里，
+不提交到仓库：Git LFS 里一个文件的每个版本都会永久留在服务器上，而旧的 release 可以删除。
+`dataset/MANIFEST.json` 记录 release 名称和校验值，`sde-rag import-data` 会下载数据库并校验。
+
+`uv run sde-rag publish-data` 从工作数据库重新生成数据集，去掉本机使用记录和运行日志，也去掉标记为 `publish = false` 的来源。
+它用 GitHub CLI（`gh`，需已登录）上传一个新的 `dataset-*` release，只保留最新的 `[dataset] release_keep` 个，其余删除；
+之后提交 `dataset/`。`--no-upload` 只在本地生成文件。收集的内容版权归原作者，见 [dataset/NOTICE.zh-CN.md](dataset/NOTICE.zh-CN.md)。
 
 ## 测试
 

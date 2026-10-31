@@ -41,3 +41,7 @@ history_turns = 4
 [ui]
 host = "127.0.0.1"
 port = 7860
+
+[dataset]
+release_repo = "DiamondGo/SDE-Interview-RAG"   # GitHub repository whose releases hold rag.db.gz (forks: override)
+release_keep = 3                               # newest dataset releases kept; older ones are deleted on publish

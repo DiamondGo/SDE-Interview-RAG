@@ -653,12 +653,12 @@ class Review(BaseModel):
 抓取到的题库和处理后的数据库随仓库发布，方便别人克隆后直接使用；本机的使用记录和日志不发布。
 
 - **`data/` 是本机工作目录，整个不提交**：工作数据库、模型缓存、向量快照、LangGraph 会话、日志都在这里。
-- **`sde-rag publish-data` 生成 `dataset/`**（用 Git LFS 跟踪）：
-  - `dataset/rag.db`：工作数据库的一份干净副本（先合并 WAL，再 `VACUUM INTO`）。**删除**本机使用记录和运行日志（`query_logs`、`alerts`、`run_locks`、`ingest_runs`、`eval_runs`），以及配置为不可公开的来源（`publish = false`，例如需要登录才能看的站点）的全部数据；
-  - `dataset/raw/<source>/`：可公开来源的原始抓取文件；
-  - `dataset/MANIFEST.json`：生成时间、各来源的文档数和题目数、嵌入模型、索引版本；
+- **`sde-rag publish-data` 生成数据集**：
+  - `rag.db`：工作数据库的一份干净副本（先合并 WAL，再 `VACUUM INTO`）。**删除**本机使用记录和运行日志（`query_logs`、`alerts`、`run_locks`、`ingest_runs`、`eval_runs`），以及配置为不可公开的来源（`publish = false`，例如需要登录才能看的站点）的全部数据。它压缩后作为一个新的 GitHub release（`dataset-<时间>`）的附件上传，只保留最新的 `[dataset] release_keep` 个数据集 release。它不提交到仓库：Git LFS 会把一个文件的每个版本永久留在服务器上（只有重建仓库才能清除），而 release 可以删除；
+  - `dataset/raw/<source>/`：可公开来源的原始抓取文件（Git LFS；按内容哈希命名，同一内容只存一次，目录只随新内容增长）；
+  - `dataset/MANIFEST.json`：生成时间、各来源的文档数和题目数、嵌入模型、索引版本，以及数据库所在的 release、下载地址和 SHA-256 校验值；
   - `dataset/NOTICE.md`：说明数据来自第三方，版权归原作者，各自的许可证不同，保留了来源链接，以及如何申请删除。
-- **`sde-rag import-data`**：克隆仓库后，把 `dataset/` 复制到 `data/` 作为起点。之后的抓取是增量的，因为“已见过”记录和来源游标也在数据集里。
+- **`sde-rag import-data`**：克隆仓库后，下载 `MANIFEST.json` 指明的数据库并核对两个校验值，再把它和 `dataset/raw/` 复制到 `data/` 作为起点。之后的抓取是增量的，因为“已见过”记录和来源游标也在数据集里。
 - 为什么不直接提交工作数据库：它在 WAL 模式下随时被写入，直接提交会拿到不完整的文件；而且里面有本机的查询记录。
 
 ---
@@ -851,4 +851,4 @@ SDE-Interview-RAG/
 
 12. **发布到 GitHub 公开仓库**；文档默认英文，中文版本为 `*.zh-CN.md`。
 13. **模型配置不提交**：只提交 `config/agents.example.toml`；`config/agents.toml` 和所有 `*.local.toml` 不提交。
-14. **数据随仓库发布**：抓取的题库和处理后的数据库以 `dataset/` 发布（Git LFS），本机使用记录和日志不发布（第 7.7 节）。
+14. **数据随仓库发布**：抓取的题库和处理后的数据库随项目发布：原始文件在 `dataset/`（Git LFS），数据库作为 GitHub release 附件（只保留最新几个），本机使用记录和日志不发布（第 7.7 节）。

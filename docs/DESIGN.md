@@ -668,12 +668,12 @@ class Review(BaseModel):
 The crawled question bank and the processed database are published with the repository so that others can clone it and use it right away; the local usage records and logs are not published.
 
 - **`data/` is the local working directory and is not committed at all**: the working database, model cache, vector snapshots, LangGraph sessions, and logs all live there.
-- **`sde-rag publish-data` produces `dataset/`** (tracked with Git LFS):
-  - `dataset/rag.db`: a clean copy of the working database (the WAL is merged first, then `VACUUM INTO`). It **removes** the local usage records and run logs (`query_logs`, `alerts`, `run_locks`, `ingest_runs`, `eval_runs`), as well as all data from sources configured as non-publishable (`publish = false`, for example sites that require a login to read);
-  - `dataset/raw/<source>/`: the raw crawled files from publishable sources;
-  - `dataset/MANIFEST.json`: generation time, document and question counts per source, embedding model, index version;
+- **`sde-rag publish-data` produces the dataset**:
+  - `rag.db`: a clean copy of the working database (the WAL is merged first, then `VACUUM INTO`). It **removes** the local usage records and run logs (`query_logs`, `alerts`, `run_locks`, `ingest_runs`, `eval_runs`), as well as all data from sources configured as non-publishable (`publish = false`, for example sites that require a login to read). It is uploaded gzipped as the asset of a new GitHub release `dataset-<time>`, and only the newest `[dataset] release_keep` dataset releases are kept. It is not committed: Git LFS keeps every version of a file on the server for good (they can only be purged by recreating the repository), while releases can be deleted;
+  - `dataset/raw/<source>/`: the raw crawled files from publishable sources (Git LFS; named by content hash, so each file is stored once and the directory only grows by new content);
+  - `dataset/MANIFEST.json`: generation time, document and question counts per source, embedding model, index version, and the release, download URL and SHA-256 checksums of the database;
   - `dataset/NOTICE.md`: explains that the data comes from third parties, that copyright belongs to the original authors, that their licenses differ, that source links are kept, and how to request removal.
-- **`sde-rag import-data`**: after cloning the repository, copies `dataset/` into `data/` as a starting point. Later crawls are incremental, because the "already seen" records and the source cursors are in the dataset too.
+- **`sde-rag import-data`**: after cloning the repository, downloads the database named in `MANIFEST.json`, verifies both checksums, and copies it and `dataset/raw/` into `data/` as a starting point. Later crawls are incremental, because the "already seen" records and the source cursors are in the dataset too.
 - Why the working database is not committed directly: in WAL mode it is written to at any time, so committing it directly would capture an incomplete file; it also contains the local query records.
 
 ---
@@ -866,4 +866,4 @@ Round 5 (2026-10-31):
 
 12. **Published as a public GitHub repository**; documentation is in English by default, and the Chinese versions are `*.zh-CN.md`.
 13. **Model configuration is not committed**: only `config/agents.example.toml` is committed; `config/agents.toml` and all `*.local.toml` files are not committed.
-14. **Data is published with the repository**: the crawled question bank and the processed database are published as `dataset/` (Git LFS); the local usage records and logs are not published (Section 7.7).
+14. **Data is published with the repository**: the crawled question bank and the processed database are published: raw files in `dataset/` (Git LFS), the database as a GitHub release asset (only the newest releases kept); the local usage records and logs are not published (Section 7.7).
