@@ -52,6 +52,7 @@ class Breaker:
         self.open_s = open_s
         self.failed_probes = 0
         self.open_until = 0.0
+        self.tripped = False                  # opened since the last success
         self._lock = threading.Lock()
 
     def is_open(self) -> bool:
@@ -73,7 +74,11 @@ class Breaker:
             self.failed_probes += 1
             if self.failed_probes >= 2:
                 self.open_until = time.monotonic() + self.open_s
+                self.tripped = True
             return False
 
-    def on_success(self) -> None:
+    def on_success(self) -> bool:
+        """Returns True when this success ends an outage (the circuit had opened)."""
         self.failed_probes = 0
+        was, self.tripped = self.tripped, False
+        return was

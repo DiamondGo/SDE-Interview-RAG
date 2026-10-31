@@ -23,6 +23,18 @@ tag_batch = 20
 tag_min_batch = 5
 lock_ttl_s = 21600
 max_attempts = 5                         # a document failing this many times goes to the dead letter
+watchdog_idle_s = 1200                   # no record finished for this long: dump stacks, mark stalled, exit (0: off)
+source_backoff_max_hours = 48            # a failing source waits 1, 2, 4 ... intervals before trying again
+stall_alert = 3                          # stalled model calls in one run that raise an alert
+dead_alert_increase = 30                 # new dead letters in one run that raise an alert
+
+[maintenance]
+backup_keep = 7                          # daily backups of rag.db kept in data/backups/
+index_retire_days = 7                    # retired index versions are deleted after this long
+
+[watchdog]
+failures_before_restart = 2              # failed UI health checks in a row before sde-ui.service is restarted
+health_timeout_s = 30
 
 [index]
 chunker_version = 1

@@ -788,7 +788,7 @@ SDE-Interview-RAG/
     evaluation/           # datasets, metrics
     agent_check.py        # running the capability tests and the gates
     ui/app.py
-    cli.py                # sde-rag ingest | ui | eval | agent-check | agents show | doctor | replay | review | stats | install-systemd
+    cli.py                # sde-rag ingest | ui | eval | agent-check | agents show | doctor | replay | review | stats | backup | reconcile | watchdog-ui | install-systemd
   evals/
     retrieval.jsonl
     agent/{extractor,tagger,router,grader,generator,reviewer,judge,e2e}.jsonl

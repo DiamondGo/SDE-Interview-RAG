@@ -773,7 +773,7 @@ SDE-Interview-RAG/
     evaluation/           # 数据集、指标
     agent_check.py        # 能力测试的执行与门禁
     ui/app.py
-    cli.py                # sde-rag ingest | ui | eval | agent-check | agents show | doctor | replay | review | stats | install-systemd
+    cli.py                # sde-rag ingest | ui | eval | agent-check | agents show | doctor | replay | review | stats | backup | reconcile | watchdog-ui | install-systemd
   evals/
     retrieval.jsonl
     agent/{extractor,tagger,router,grader,generator,reviewer,judge,e2e}.jsonl

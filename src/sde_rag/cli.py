@@ -137,6 +137,10 @@ def cmd_stats(args) -> int:
             "SELECT name, last_success_at, consecutive_failures, last_error FROM sources")],
         "last_runs": [dict(r) for r in c.execute(
             "SELECT run_key, started_at, finished_at, status FROM ingest_runs ORDER BY id DESC LIMIT 5")],
+        "dead_letters": {r[0] or "?": r[1] for r in c.execute(
+            "SELECT stage, COUNT(*) FROM documents WHERE status = 'dead' GROUP BY stage")},
+        "open_alerts": [dict(r) for r in c.execute(
+            "SELECT key, message, first_at, last_notified_at FROM alerts WHERE resolved_at IS NULL ORDER BY first_at")],
     }
     print(json.dumps(out, ensure_ascii=False, indent=1))
     return 0
@@ -158,6 +162,55 @@ def cmd_import_data(args) -> int:
     from sde_rag.pipeline.dataset import import_data
     print(json.dumps(import_data(force=args.force), ensure_ascii=False, indent=1))
     return 0
+
+
+def cmd_replay(args) -> int:
+    from sde_rag.pipeline import stages
+    if args.list:
+        rows = stages.dead_letters(args.stage, args.status, args.limit)
+        for r in rows:
+            r["last_error"] = (r["last_error"] or "").replace("\n", " ")[:80]
+            r["title"] = (r["title"] or "")[:50]
+        if rows:
+            _print_table(rows, ["id", "source", "stage", "attempts", "updated_at", "title", "last_error"])
+        else:
+            print(f"no {args.status} documents" + (f" at stage {args.stage}" if args.stage else ""))
+        return 0
+    ids = [int(x) for x in args.ids.split(",")] if args.ids else None
+    out = stages.replay(args.stage, args.status, ids)
+    print(json.dumps({"requeued": out, "total": sum(out.values())}, indent=1))
+    if out:
+        print("The next `sde-rag ingest` run processes them.")
+    return 0
+
+
+def cmd_backup(args) -> int:
+    from sde_rag.maintenance import backup
+    print(json.dumps(backup(args.keep), indent=1))
+    return 0
+
+
+def cmd_reconcile(args) -> int:
+    from sde_rag.maintenance import reconcile
+    out = reconcile()
+    print(json.dumps(out, ensure_ascii=False, indent=1, default=str))
+    return 75 if out.get("skipped") else 0      # EX_TEMPFAIL: try again later
+
+
+def cmd_watchdog_ui(args) -> int:
+    from sde_rag.watchdog import check_ui
+    out = check_ui(args.url, restart=not args.no_restart)
+    print(json.dumps(out, ensure_ascii=False, default=str))
+    return 0 if out["ok"] else 1
+
+
+def cmd_install_systemd(args) -> int:
+    from sde_rag import deploy
+    out = deploy.uninstall() if args.remove else deploy.install(enable=args.enable, ui=args.ui)
+    print(json.dumps(out, indent=1))
+    if not args.remove and not args.enable:
+        print("\nUnits linked but not enabled. Enable the timers with --enable (and the UI service with --ui).")
+    return 1 if out.get("conflicts") else 0
 
 
 def cmd_ui(args) -> int:
@@ -202,6 +255,28 @@ def main(argv: list[str] | None = None) -> None:
     s = sub.add_parser("import-data", help="start data/ from the published dataset (downloads the database)")
     s.add_argument("--force", action="store_true", help="replace an existing working database")
     s.set_defaults(fn=cmd_import_data)
+    s = sub.add_parser("replay", help="send failed or dead-letter documents through their stage again")
+    s.add_argument("--stage", choices=["clean", "parse", "index"], help="default: every stage")
+    s.add_argument("--status", choices=["dead", "failed"], default="dead",
+                   help="dead: gave up after max_attempts; failed: waiting for a retry (skip the wait)")
+    s.add_argument("--ids", help="comma-separated document ids (default: all matching)")
+    s.add_argument("--list", action="store_true", help="only list them")
+    s.add_argument("--limit", type=int, default=100, help="rows shown by --list")
+    s.set_defaults(fn=cmd_replay)
+    s = sub.add_parser("backup", help="gzipped online backup of the database into data/backups/")
+    s.add_argument("--keep", type=int, help="backups kept (default [maintenance] backup_keep)")
+    s.set_defaults(fn=cmd_backup)
+    sub.add_parser("reconcile", help="weekly consistency repair, full GitHub listing next run, heat refresh"
+                   ).set_defaults(fn=cmd_reconcile)
+    s = sub.add_parser("watchdog-ui", help="check the UI's /health; restart sde-ui.service after repeated failures")
+    s.add_argument("--url", help="default: http://<[ui] host>:<[ui] port>/health")
+    s.add_argument("--no-restart", action="store_true")
+    s.set_defaults(fn=cmd_watchdog_ui)
+    s = sub.add_parser("install-systemd", help="write systemd user units to deploy/systemd/ and link them")
+    s.add_argument("--enable", action="store_true", help="also enable and start the timers")
+    s.add_argument("--ui", action="store_true", help="also enable and start sde-ui.service")
+    s.add_argument("--remove", action="store_true", help="disable the units and remove the links")
+    s.set_defaults(fn=cmd_install_systemd)
     s = sub.add_parser("ui", help="start the web UI")
     s.add_argument("--host")
     s.add_argument("--port", type=int)

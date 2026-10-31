@@ -72,11 +72,44 @@ Known limitations, planned for later milestones:
 - The evaluate graph only checks that the index finds each question by its own text (real evaluation sets:
   milestone 3).
 
-## Milestone 2: interview experiences, reliability and the reviewer — planned
+## Milestone 2: interview experiences, reliability and the reviewer — in progress
 
-LeetCode Discuss, Reddit, Medium and 1point3acres connectors; LLM question extraction with fabrication checks;
-near-duplicate merging; reranking; the grade/rewrite loop; dead-letter replay; the full watchdog; the reviewer
-role; agent capability tests with the pre-ingest gate; systemd timers.
+Scope: LeetCode Discuss, Reddit, Medium and 1point3acres connectors; LLM question extraction with fabrication
+checks; near-duplicate merging; reranking; the grade/rewrite loop; dead-letter replay; the full watchdog; the
+reviewer role; agent capability tests with the pre-ingest gate; systemd timers.
+
+Order of work: (1) reliability and scheduling; (2) LLM extraction, fabrication checks and near-duplicate merging;
+(3) the new sources; (4) reranking, the grade/rewrite loop and the reviewer; (5) agent capability tests and the
+gate, then three days of scheduled runs for acceptance.
+
+### Step 1: reliability and scheduling — done (2026-10-31)
+
+- Dead letters: `sde-rag replay --list` lists them; `sde-rag replay [--stage] [--status dead|failed] [--ids]`
+  sends documents through their stage again on the next run, with the attempt count reset. The index stage now
+  records failures per document too, so one bad document no longer stops the stage.
+- Source backoff: a source failing several runs in a row waits 1, 2, 4 intervals before the next try, at most
+  48 hours (before, it was retried every run).
+- Run watchdog: a thread in the ingest process watches for progress (every finished record and every listed
+  item counts). After 20 minutes with none, it writes every thread's stack to `data/logs/stall-*.txt`, marks the
+  run `stalled`, releases the lock, alerts, and exits with status 3. Starting a new run marks runs still recorded
+  as `running` whose process is gone as `abandoned`.
+- Model stalls: each run's report counts stalled calls per role@backend and alerts at 3 or more in one run; a
+  backend's circuit breaker opening raises an alert (`llm:<backend>`), resolved when it answers again.
+- New in the run report: the backlog (alert when it grows three runs in a row) and new dead letters (alert when
+  more than 30 are added in one run).
+- Ingest graph nodes retry on SQLite write-lock timeouts (LangGraph `RetryPolicy`).
+- `sde-rag backup`: SQLite online backup, gzipped (the 82 MB database becomes 45 MB in about 4 seconds); 7 kept.
+- `sde-rag reconcile`: repairs references between tables (dangling "seen" records, orphaned chunks, vectors and
+  full-text rows), lists every GitHub repository in full on the next run, recomputes heat (its time decay),
+  deletes expired index versions and checks the full-text index. On a copy of the working database: 1.6 seconds,
+  no inconsistencies.
+- `sde-rag watchdog-ui`: checks the UI's `/health`; two failures in a row restart `sde-ui.service` and alert.
+- `sde-rag install-systemd [--enable] [--ui] [--remove]`: writes 9 units with this machine's paths to
+  `deploy/systemd/` (not committed) and links them into `~/.config/systemd/user`; existing units of the same name
+  are left alone.
+- Tests: 15 new (69 in total), including a hung model being detected, the fallback taking over, the circuit
+  opening, the alert and the recovery. A real forced run on a copy: after reconcile, all 314 GitHub files were
+  listed again and recognised as unchanged by their blob SHA; 0 downloads, no errors, no stalls, 42 seconds.
 
 ## Milestone 3: monitoring and evaluation — planned
 

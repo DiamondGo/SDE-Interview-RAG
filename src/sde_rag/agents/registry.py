@@ -8,11 +8,13 @@ import hashlib
 import json
 import threading
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator
 
 from pydantic import BaseModel
 
+from sde_rag import notify
 from sde_rag.agents.backends import Backend, Messages
 from sde_rag.agents.backends.cli import CLIBackend
 from sde_rag.agents.backends.openai_compat import OpenAICompatBackend
@@ -91,6 +93,8 @@ class AgentRegistry:
             self.backends[name] = BACKEND_TYPES[btype](name, bcfg)
         self.roles: dict[str, Role] = {n: Role(n, _role_attempts(n, r)) for n, r in (self.cfg.get("roles") or {}).items()}
         self._slots = {n: threading.Semaphore(max(1, b.max_concurrency)) for n, b in self.backends.items()}
+        self._stalls: Counter = Counter()
+        self._stall_lock = threading.Lock()
 
     # ---- inspection ----------------------------------------------------------------------
 
@@ -178,9 +182,27 @@ class AgentRegistry:
             raise BackendUnavailable(f"{a.backend}: circuit open after failed health probes")
         return b
 
-    def _note_failure(self, b: Backend | None, e: Exception) -> None:
+    def _note_failure(self, role: str, b: Backend | None, e: Exception) -> None:
+        if isinstance(e, (StallError, RunawayError)):
+            with self._stall_lock:
+                self._stalls[f"{role}@{b.name if b else '?'}"] += 1
         if b is not None and isinstance(e, StallError):
+            was_open = b.breaker.is_open()
             b.breaker.on_stall()
+            if b.breaker.is_open() and not was_open:
+                notify.alert(f"llm:{b.name}", f"Model backend {b.name} not responding",
+                             f"stalled during {role} and failed two health probes; calls to it pause for "
+                             f"{b.breaker.open_s:.0f}s and queued work waits (fallbacks are used where configured)")
+
+    def _note_success(self, b: Backend) -> None:
+        if b.breaker.on_success():
+            notify.resolve(f"llm:{b.name}", f"Model backend {b.name} responding again")
+
+    def take_stalls(self) -> dict[str, int]:
+        """Stalled or runaway calls by role@backend since the last call (an ingest run's report takes them)."""
+        with self._stall_lock:
+            out, self._stalls = dict(self._stalls), Counter()
+        return out
 
     def _run_chain(self, name: str, fn: Callable[[Backend, Attempt], Any], trace: list | None) -> Any:
         errors = []
@@ -190,13 +212,13 @@ class AgentRegistry:
             try:
                 b = self._usable_backend(a)
                 result = fn(b, a)
-                b.breaker.on_success()
+                self._note_success(b)
                 if trace is not None:
                     trace.append({"role": name, "backend": a.backend, "ms": int((time.monotonic() - t0) * 1000),
                                   "ok": True})
                 return result
             except Exception as e:  # every failure moves on to the next attempt
-                self._note_failure(b, e)
+                self._note_failure(name, b, e)
                 msg = f"{a.backend}: {type(e).__name__}: {str(e)[:300]}"
                 errors.append(msg)
                 if trace is not None:
@@ -249,14 +271,14 @@ class AgentRegistry:
                                             max_chars=a.params.get("max_chars"), on_exit=release):
                     yielded = True
                     yield {"type": "token", "text": piece}
-                b.breaker.on_success()
+                self._note_success(b)
                 if trace is not None:
                     trace.append({"role": name, "backend": a.backend, "ms": int((time.monotonic() - t0) * 1000),
                                   "ok": True})
                 yield {"type": "done", "backend": a.backend}
                 return
             except Exception as e:  # every failure moves on to the next attempt
-                self._note_failure(b, e)
+                self._note_failure(name, b, e)
                 msg = f"{a.backend}: {type(e).__name__}: {str(e)[:300]}"
                 errors.append(msg)
                 if trace is not None:

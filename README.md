@@ -96,6 +96,29 @@ uv run langgraph dev                      # the three graphs in LangGraph Studio
 Each ingest run key (default: the current half-day) runs once; `--force` runs again. An interrupted run resumes
 from its checkpoint.
 
+### Scheduled runs (systemd)
+
+```bash
+uv run sde-rag install-systemd --enable   # timers: ingest 06:30/18:30, backup + eval 03:30, reconcile Sun 04:30,
+                                          # UI health check every 5 min; add --ui to run the UI as a service too
+uv run sde-rag install-systemd --remove   # disable them and remove the links
+```
+
+The units are written with this machine's paths to `deploy/systemd/` (not committed) and linked into
+`~/.config/systemd/user`; timers run without a login session only with `loginctl enable-linger`.
+
+Failures are retried rather than lost. A document that fails a stage waits 1, 2, 4 ... hours (up to 48) and goes
+to the dead letter after 5 attempts; a failing source waits 1, 2, 4 intervals (up to 48 hours). An ingest run in
+which nothing at all progresses for 20 minutes dumps every thread's stack to `data/logs/`, is marked `stalled`
+and exits; the next run carries on with the queued work. Alerts go to the channels in `[notify]`.
+
+```bash
+uv run sde-rag replay --list              # dead letters (--status failed: waiting for a retry)
+uv run sde-rag replay --stage parse       # send them through their stage again on the next run
+uv run sde-rag backup                     # gzipped online backup in data/backups/ (7 kept)
+uv run sde-rag reconcile                  # consistency repair, full GitHub listing next run, heat refresh
+```
+
 ## Data
 
 `data/` is the local working directory and is never committed: the working database (which also holds local

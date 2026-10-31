@@ -9,14 +9,14 @@ import sqlite3
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import Iterator
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-from sde_rag import db
+from sde_rag import db, notify, watchdog
 from sde_rag.graphs import evaluate, ingest, query
-from sde_rag.settings import data_dir
+from sde_rag.settings import data_dir, section
 
 
 @contextmanager
@@ -25,9 +25,32 @@ def checkpointer() -> Iterator[SqliteSaver]:
         yield cp
 
 
+def _stalled(run_key: str, stack_file: str) -> None:
+    """The watchdog's last act before it exits the process: record why, free the lock, alert."""
+    owner = f"{socket.gethostname()}:{os.getpid()}:{run_key}"
+    db.conn().execute("UPDATE ingest_runs SET status = 'stalled', finished_at = ? WHERE run_key = ? AND "
+                      "status = 'running'", (db.now_iso(), run_key))
+    ingest.release_lock(owner)
+    idle = int(section("ingest").get("watchdog_idle_s", 1200))
+    notify.alert("ingest:stalled", "Ingest run killed by the watchdog",
+                 f"run {run_key}: no progress for {idle}s; thread stacks in {stack_file}. "
+                 f"The next run picks up the queued work.")
+
+
 def run_ingest(*, run_key: str | None = None, sources: list[str] | None = None, force: bool = False,
-               doc_limit: int | None = None, skip_llm: bool = False, on_update=None) -> dict:
+               doc_limit: int | None = None, skip_llm: bool = False, on_update=None, watch: bool = True) -> dict:
     run_key = run_key or ingest.default_run_key()
+    idle = float(section("ingest").get("watchdog_idle_s", 1200))
+    dog = watchdog.RunWatchdog(idle, lambda stacks: _stalled(run_key, stacks), tag=f"ingest-{run_key}")
+    with dog if watch and idle > 0 else nullcontext():
+        summary = _run_ingest(run_key, sources, force, doc_limit, skip_llm, on_update)
+    if summary.get("run_key") and not summary.get("skipped") and not summary.get("note"):
+        notify.resolve("ingest:stalled", "Ingest runs finishing again", f"run {run_key} completed")
+    return summary
+
+
+def _run_ingest(run_key: str, sources: list[str] | None, force: bool, doc_limit: int | None, skip_llm: bool,
+                on_update) -> dict:
     thread = f"ingest:{run_key}" + (f":{int(time.time())}" if force else "")
     cfg = {"configurable": {"thread_id": thread}, "recursion_limit": 100, "max_concurrency": 4}
     ctx = ingest.IngestContext(doc_limit=doc_limit, skip_llm=skip_llm)

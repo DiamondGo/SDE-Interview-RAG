@@ -40,6 +40,39 @@ def mark_failed(doc_id: int, stage: str, error: str) -> str:
     return status
 
 
+# The status a document waits in for each stage; replaying a stage puts documents back there.
+STAGE_INPUT = {"clean": "fetched", "parse": "cleaned", "index": "parsed"}
+
+
+def dead_letters(stage: str | None = None, status: str = "dead", limit: int = 100) -> list[dict]:
+    sql, args = "SELECT id, source, title, stage, attempts, last_error, updated_at FROM documents WHERE status = ?", [status]
+    if stage:
+        sql, args = sql + " AND stage = ?", args + [stage]
+    return [dict(r) for r in db.conn().execute(sql + " ORDER BY id LIMIT ?", (*args, limit))]
+
+
+def replay(stage: str | None = None, status: str = "dead", doc_ids: list[int] | None = None) -> dict:
+    """Documents that failed at `stage` (every stage when None) go back to that stage's input, with their
+    attempt count reset; the next ingest run takes them. `status="failed"` skips the retry wait."""
+    if stage is not None and stage not in STAGE_INPUT:
+        raise ValueError(f"unknown stage {stage!r} (known: {', '.join(STAGE_INPUT)})")
+    if status not in ("dead", "failed"):
+        raise ValueError("status must be dead or failed")
+    out = {}
+    with db.tx() as t:
+        for st in [stage] if stage else list(STAGE_INPUT):
+            sql = ("UPDATE documents SET status = ?, stage = NULL, attempts = 0, next_retry_at = NULL, updated_at = ? "
+                   "WHERE status = ? AND stage = ?")
+            args = [STAGE_INPUT[st], db.now_iso(), status, st]
+            if doc_ids:
+                sql += f" AND id IN ({','.join('?' * len(doc_ids))})"
+                args += doc_ids
+            n = t.execute(sql, args).rowcount
+            if n:
+                out[st] = n
+    return out
+
+
 def clean_stage(limit: int, heartbeat=lambda: None) -> dict:
     stats = {"cleaned": 0, "skipped": 0, "failed": 0}
     for doc in due_documents("fetched", "clean", limit):

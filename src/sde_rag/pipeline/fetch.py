@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from sde_rag import db, notify
 from sde_rag.http import NotModified, Validators, normalize_url
-from sde_rag.settings import data_dir
+from sde_rag.settings import data_dir, section
 from sde_rag.sources.base import Connector, DocRef, RawDoc
 from sde_rag.text import sha1
 
@@ -16,11 +16,21 @@ FAILURES_BEFORE_ALERT = 3
 
 
 def source_due(name: str, interval_hours: float, *, slack_minutes: float = 30) -> bool:
-    row = db.conn().execute("SELECT last_success_at FROM sources WHERE name = ?", (name,)).fetchone()
-    if not row or not row["last_success_at"]:
+    """Due one interval after the last success. A failing source waits longer after each failure in a row
+    (one interval, two, four, ...) up to `source_backoff_max_hours`, so a broken site is not hammered."""
+    row = db.conn().execute("SELECT last_success_at, last_run_at, consecutive_failures FROM sources WHERE name = ?",
+                            (name,)).fetchone()
+    if not row or not row["last_run_at"]:
         return True
-    last = datetime.fromisoformat(row["last_success_at"])
-    return datetime.now(timezone.utc) - last >= timedelta(hours=interval_hours) - timedelta(minutes=slack_minutes)
+    now, slack = datetime.now(timezone.utc), timedelta(minutes=slack_minutes)
+    failures = row["consecutive_failures"] or 0
+    if failures:
+        cap = float(section("ingest").get("source_backoff_max_hours", 48))
+        wait = timedelta(hours=min(cap, interval_hours * 2 ** (failures - 1)))
+        return now - datetime.fromisoformat(row["last_run_at"]) >= wait - slack
+    if not row["last_success_at"]:
+        return True
+    return now - datetime.fromisoformat(row["last_success_at"]) >= timedelta(hours=interval_hours) - slack
 
 
 def _load_state(name: str) -> dict:
@@ -98,7 +108,7 @@ def _store_document(raw: RawDoc, content_hash: str, raw_path: str) -> int:
     return doc_id
 
 
-def sync_source(name: str, connector: Connector) -> dict:
+def sync_source(name: str, connector: Connector, heartbeat=lambda: None) -> dict:
     """Returns counters for the run report."""
     stats = {"listed": 0, "seen": 0, "cross_source": 0, "not_modified": 0, "downloaded": 0, "new": 0,
              "changed": 0, "duplicate_downloads": 0, "failed": 0, "errors": []}
@@ -115,7 +125,9 @@ def sync_source(name: str, connector: Connector) -> dict:
     stats["listed"] = len(listing.refs)
     stats["errors"] += [f"{name}: {e}" for e in listing.errors]
     failed: list[DocRef] = []
+    heartbeat()
     for ref in listing.refs:
+        heartbeat()
         seen = _seen(ref.source, ref.external_id)
         if seen and seen["doc_id"] and ref.version is not None and seen["version"] == ref.version:
             stats["seen"] += 1

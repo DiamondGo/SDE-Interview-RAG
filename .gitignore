@@ -10,6 +10,9 @@ __pycache__/
 config/agents.toml
 config/*.local.toml
 
+# systemd units generated with this machine's paths (`sde-rag install-systemd`)
+deploy/systemd/
+
 # Local working data: databases with usage records, logs, model cache, conversations.
 # The public dataset is published separately (see `sde-rag publish-data`): raw files in dataset/raw/,
 # the database as a GitHub release asset (never in Git: every LFS version would be kept forever).

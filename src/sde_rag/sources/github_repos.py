@@ -93,6 +93,11 @@ class GitHubRepos:
         return RawDoc(ref=ref, content=text, content_type="markdown", kind="prep", origin=repo,
                       title=ref.title, hints=hints)
 
+    @staticmethod
+    def full_listing(state: dict) -> dict:
+        """Reconciliation: list every repo's tree again next run (unchanged blobs still are not downloaded)."""
+        return {repo: {**st, "complete": False} for repo, st in state.items()}
+
     def finalize(self, state: dict, failed: list[DocRef]) -> dict:
         for ref in failed:
             state.get(ref.meta["repo"], {})["complete"] = False   # list the repo again next run

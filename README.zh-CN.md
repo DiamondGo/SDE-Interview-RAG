@@ -84,6 +84,28 @@ uv run langgraph dev                      # 在 LangGraph Studio 里查看三个
 
 每个抓取运行标识（默认是当前的半天）只运行一次，`--force` 可以强制再跑；中断的运行会从断点继续。
 
+### 定时运行（systemd）
+
+```bash
+uv run sde-rag install-systemd --enable   # 定时任务：06:30/18:30 抓取，03:30 备份和评测，周日 04:30 对账，
+                                          # 每 5 分钟检查网页界面；加 --ui 把网页界面也作为服务运行
+uv run sde-rag install-systemd --remove   # 停用并删除链接
+```
+
+单元文件按本机路径生成到 `deploy/systemd/`（不提交），再链接到 `~/.config/systemd/user`；
+没有登录会话时，定时任务要先执行 `loginctl enable-linger` 才会运行。
+
+失败会重试，不会丢。某篇文档在某个阶段失败后，等 1、2、4……小时（最多 48 小时）再试，失败 5 次进入死信；
+某个来源失败后，等 1、2、4 个抓取间隔（最多 48 小时）再试。一次抓取如果 20 分钟内没有任何进展，
+会把所有线程的调用栈写到 `data/logs/`，标记为 `stalled` 并退出，下一次运行接着处理排队的工作。告警发到 `[notify]` 配置的渠道。
+
+```bash
+uv run sde-rag replay --list              # 列出死信（--status failed：等待重试的）
+uv run sde-rag replay --stage parse       # 下一次运行时让它们重新经过这个阶段
+uv run sde-rag backup                     # 在线备份数据库并压缩到 data/backups/（保留 7 份）
+uv run sde-rag reconcile                  # 修复表间引用，下次运行完整列出 GitHub 仓库，刷新热度
+```
+
 ## 数据
 
 `data/` 是本机工作目录，永远不提交：工作数据库（里面也有本机的使用记录）、原始下载、向量快照、LangGraph 断点、日志和模型缓存。

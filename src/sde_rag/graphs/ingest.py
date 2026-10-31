@@ -12,6 +12,7 @@ import logging
 import operator
 import os
 import socket
+import sqlite3
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -19,10 +20,10 @@ from typing import Annotated
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
-from langgraph.types import Send
+from langgraph.types import RetryPolicy, Send
 from typing_extensions import TypedDict
 
-from sde_rag import db, notify
+from sde_rag import db, notify, watchdog
 from sde_rag.agents import get_registry
 from sde_rag.pipeline import stages, tagging
 from sde_rag.pipeline.fetch import source_due, sync_source
@@ -112,6 +113,7 @@ class Heartbeat:
         self.run_id, self.owner, self.every_s, self.last = run_id, owner, every_s, 0.0
 
     def __call__(self) -> None:
+        watchdog.progress()
         if time.monotonic() - self.last < self.every_s:
             return
         self.last = time.monotonic()
@@ -146,6 +148,8 @@ def start(state: IngestState) -> dict:
     owner = f"{socket.gethostname()}:{os.getpid()}:{run_key}"
     if not _acquire_lock(owner):
         return {"run_key": run_key, "done": True, "summary": {"run_key": run_key, "skipped": "another ingest run holds the lock"}}
+    # Holding the lock, any run still marked running belongs to a process that died without saying so.
+    c.execute("UPDATE ingest_runs SET status = 'abandoned', finished_at = ? WHERE status = 'running'", (db.now_iso(),))
     run_id = c.execute("INSERT INTO ingest_runs (run_key, started_at, heartbeat_at, status) VALUES (?, ?, ?, 'running')",
                        (run_key, db.now_iso(), db.now_iso())).lastrowid
     return {"run_key": run_key, "run_id": run_id, "owner": owner, "done": False, "stats": {}, "errors": []}
@@ -191,7 +195,7 @@ def fetch_source(payload: dict) -> dict:
     cfg = source_configs()[name]
     connector = build_connector(name, cfg)
     try:
-        st = sync_source(name, connector)
+        st = sync_source(name, connector, heartbeat=Heartbeat(payload["run_id"], payload["owner"]))
     finally:
         connector.http.close()
     errors = st.pop("errors")
@@ -222,35 +226,68 @@ def index(state: IngestState, runtime: Runtime[IngestContext]) -> dict:
     return {"stats": {"index": index_stage(_limit(runtime), _hb(state))}}
 
 
+FINISHED = ("indexed", "unchanged", "skipped", "dead")
+
+
+def _previous_summaries(run_id: int, n: int) -> list[dict]:
+    rows = db.conn().execute("SELECT summary FROM ingest_runs WHERE status = 'done' AND id < ? AND summary IS NOT NULL "
+                             "ORDER BY id DESC LIMIT ?", (run_id, n)).fetchall()
+    return [json.loads(r[0]) for r in rows]
+
+
 def report(state: IngestState) -> dict:
+    cfg = section("ingest")
     stats, errors = state.get("stats") or {}, state.get("errors") or []
     fetch = {k.split(":", 1)[1]: v for k, v in stats.items() if k.startswith("fetch:")}
     downloaded = sum(v.get("downloaded", 0) for v in fetch.values())
     dups = sum(v.get("duplicate_downloads", 0) for v in fetch.values())
     counts = {r["status"]: r["n"] for r in db.conn().execute("SELECT status, COUNT(*) AS n FROM documents GROUP BY status")}
+    stalls = get_registry().take_stalls()
     summary = {
         "run_key": state["run_key"], "sources": fetch,
         "duplicate_download_rate": round(dups / downloaded, 4) if downloaded else 0.0,
         **{k: v for k, v in stats.items() if not k.startswith("fetch:")},
         "documents_by_status": counts,
+        "backlog": sum(n for s, n in counts.items() if s not in FINISHED),
+        "stalls": stalls, "stall_count": sum(stalls.values()),
         "questions": db.conn().execute("SELECT COUNT(*) FROM questions").fetchone()[0],
         "errors": errors[:100], "error_count": len(errors)}
     db.conn().execute("UPDATE ingest_runs SET finished_at = ?, status = 'done', summary = ? WHERE id = ?",
                       (db.now_iso(), json.dumps(summary, ensure_ascii=False, default=str), state["run_id"]))
     release_lock(state["owner"])
+    _alerts(summary, _previous_summaries(state["run_id"], 3), cfg, downloaded, dups)
+    return {"summary": summary}
+
+
+def _alerts(summary: dict, previous: list[dict], cfg: dict, downloaded: int, dups: int) -> None:
     if summary["duplicate_download_rate"] > 0.05:
         notify.alert("ingest:duplicates", "Duplicate downloads",
                      f"{dups} of {downloaded} downloads were content already stored: an incremental connector is broken")
-    if counts.get("dead"):
-        notify.alert("ingest:dead", "Documents in the dead letter", f"{counts['dead']} documents failed 5 times")
-    return {"summary": summary}
+    dead = summary["documents_by_status"].get("dead", 0)
+    dead_before = previous[0].get("documents_by_status", {}).get("dead", 0) if previous else 0
+    if dead - dead_before > int(cfg.get("dead_alert_increase", 30)):
+        notify.alert("ingest:dead", "Dead letters piling up",
+                     f"{dead - dead_before} more documents failed {cfg.get('max_attempts', 5)} times "
+                     f"({dead} in total); see `sde-rag replay --list`")
+    backlogs = [summary["backlog"]] + [p["backlog"] for p in previous if "backlog" in p]
+    if len(backlogs) >= 4 and all(a > b for a, b in zip(backlogs, backlogs[1:])):
+        notify.alert("ingest:backlog", "Backlog keeps growing",
+                     f"documents waiting for a stage, newest run first: {backlogs}")
+    elif len(backlogs) >= 2 and backlogs[0] <= backlogs[1]:
+        notify.resolve("ingest:backlog", "Backlog no longer growing", f"{backlogs[0]} documents waiting")
+    if summary["stall_count"] >= int(cfg.get("stall_alert", 3)):
+        notify.alert("ingest:stalls", "Model calls stalling",
+                     f"{summary['stall_count']} stalled calls this run: {summary['stalls']}")
 
 
 def build_graph() -> StateGraph:
     b = StateGraph(IngestState, context_schema=IngestContext, input_schema=IngestInput, output_schema=IngestOutput)
+    # Stages only take work from SQLite and record it there, so re-running a node after "database is locked"
+    # (another process holding the write lock past busy_timeout) is safe.
+    busy = RetryPolicy(max_attempts=3, initial_interval=5.0, retry_on=sqlite3.OperationalError)
     for name, fn in (("start", start), ("preflight", preflight), ("fetch_source", fetch_source), ("clean", clean),
                      ("parse", parse), ("tag", tag), ("merge", merge), ("index", index), ("report", report)):
-        b.add_node(name, fn)
+        b.add_node(name, fn, retry_policy=None if name == "start" else busy)
     b.add_edge(START, "start")
     b.add_conditional_edges("start", lambda s: END if s.get("done") else "preflight", ["preflight", END])
     b.add_conditional_edges("preflight", plan, ["fetch_source", "clean"])
