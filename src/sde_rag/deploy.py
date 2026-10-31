@@ -72,7 +72,8 @@ def install(*, enable: bool = False, ui: bool = False, out_dir: Path | None = No
         link.symlink_to(src)
         report["linked"].append(str(link))
     systemctl("daemon-reload")
-    wanted = (TIMERS if enable else ()) + (SERVICES if ui else ())
+    # The UI first: enabling the watchdog timer runs its first health check right away.
+    wanted = (SERVICES if ui else ()) + (TIMERS if enable else ())
     for unit in wanted:
         r = systemctl("enable", "--now", unit)
         (report["enabled"] if r.returncode == 0 else report["conflicts"]).append(
