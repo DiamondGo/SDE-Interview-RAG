@@ -1,0 +1,27 @@
+{
+ "generated_at": "2026-10-31T22:09:19+00:00",
+ "index_version": "v1",
+ "embed_model": "intfloat/multilingual-e5-large",
+ "unpublished_sources": {},
+ "questions_removed_with_them": 0,
+ "raw_files": 486,
+ "documents_by_source": {
+  "devto": 150,
+  "github": 313,
+  "hn": 23
+ },
+ "questions": 6535,
+ "questions_by_category": {
+  "automation": 2104,
+  "framework": 1456,
+  "language": 996,
+  "ai_ml": 731,
+  "cs_fundamentals": 521,
+  "none": 285,
+  "system_design": 198,
+  "coding": 190,
+  "behavioral": 54
+ },
+ "chunks": 7585,
+ "embeddings": 7585
+}
