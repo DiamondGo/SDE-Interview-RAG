@@ -134,6 +134,7 @@ The source list, crawl schedule, rate limits, and per-run caps are all defined i
 - Post content is used only for personal interview preparation. Content with read-permission restrictions is stored only locally, and the UI shows only excerpts and links to the original posts.
 - **Parts hidden behind the site's points threshold stay hidden.** Many posts put their questions in a block that needs more points than the account has (measured 2026-10-31: the threshold was 500 and the account had 6). The connector stores the visible text with a marker where a part was hidden, and the document gets the hint `partial`; it never tries to earn points (that would mean posting).
 - Whether the page is blocked is judged from its structure, never from its text (posts talk about logins and verification codes too): a login or verification URL, a browser-check title, Discuz's prompt box `#messagetext`, or the account's settings link missing (logged out). One block stops the run: no further pages are opened.
+- A prompt about one thread only (it needs a higher read-permission level, it was deleted or hidden) is not a block: that thread is recorded as seen and never retried, and the run goes on. (On 2026-10-31 a thread that needed read permission above 80 stopped the whole run; that is why.)
 - The Chrome processes started for the session are recorded; if the run watchdog kills a stuck run, it kills them too, so the profile is not left locked for the other job that uses it.
 
 ---

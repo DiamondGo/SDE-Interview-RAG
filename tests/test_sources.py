@@ -166,6 +166,27 @@ def test_a_skipped_listing_is_neither_success_nor_failure():
     assert source_due("s", 12)                               # tried again next run, without backoff
 
 
+def test_a_document_that_cannot_be_read_is_remembered_not_retried():
+    from sde_rag.sources.base import SkipDoc
+
+    class Restricted(FakeConnector):
+        def fetch_doc(self, ref, validators):
+            if ref.external_id == "locked":
+                self.fetched.append(ref.external_id)
+                raise SkipDoc("本帖要求阅读权限高于 80")
+            return super().fetch_doc(ref, validators)
+
+    con = Restricted("s", {"locked": {"version": "1"}, "open": {"version": "1", "content": PREP_MD}})
+    st = sync_source("s", con)
+    assert st["skipped_docs"] == 1 and st["failed"] == 0 and st["new"] == 1 and con.finalized_failed == []
+    con.fetched.clear()
+    st = sync_source("s", con)
+    assert con.fetched == [] and st["seen"] == 2
+    con.docs["locked"]["version"] = "2"                  # edited since: worth one more look
+    sync_source("s", con)
+    assert con.fetched == ["locked"]
+
+
 def test_download_cap_leaves_the_rest_for_the_next_run():
     docs = {f"d{i}": {"version": "1", "content": PREP_MD + f"\n## Q{i}?\nA.\n"} for i in range(5)}
     con = FakeConnector("s", docs)

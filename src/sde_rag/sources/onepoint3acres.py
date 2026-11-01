@@ -20,7 +20,7 @@ from sde_rag import notify
 from sde_rag.browser import BrowserSession, ProfileInUse
 from sde_rag.http import HttpClient, Validators
 from sde_rag.settings import section
-from sde_rag.sources.base import DocRef, ListResult, RawDoc
+from sde_rag.sources.base import DocRef, ListResult, RawDoc, SkipDoc
 
 BASE = "https://www.1point3acres.com/bbs"
 HIDDEN_MARK = "[部分内容需要更高积分才能查看，未读取]"
@@ -32,6 +32,8 @@ _BLOCKED_URL = re.compile(r"member\.php\?mod=logging|/login|captcha|/verify", re
 _CHALLENGE_TITLE = re.compile(r"Just a moment|Attention Required|安全验证|Verify", re.I)
 LOGGED_IN = "a[href*='mod=spacecp']"          # the account's settings link, only shown to a logged-in user
 PROMPT = "#messagetext"                         # Discuz's box for "please log in", "no permission" and the like
+# Prompts about one thread (a read-permission level it needs, deleted, hidden): skip it, the run goes on.
+_THREAD_ONLY = re.compile(r"本帖要求阅读权限|阅读权限高于|指定的主题不存在|已被删除|主题.*屏蔽|仅作者可见|需要购买|该帖被")
 
 
 class Blocked(RuntimeError):
@@ -84,7 +86,7 @@ class OnePoint3Acres:
         if wait > 0:
             time.sleep(wait)
 
-    def _open(self, url: str) -> None:
+    def _open(self, url: str, *, thread: bool = False) -> None:
         self._pause()
         try:
             r = self.session.goto(url)
@@ -99,7 +101,10 @@ class OnePoint3Acres:
         elif _CHALLENGE_TITLE.search(page.title() or ""):
             why = f"browser check ({page.title()!r})"
         elif page.query_selector(PROMPT) is not None:
-            why = f"site prompt: {page.inner_text(PROMPT).strip()[:120]!r}"
+            prompt = page.inner_text(PROMPT).strip()
+            if thread and _THREAD_ONLY.search(prompt):
+                raise SkipDoc(prompt[:120])        # this thread only: the run goes on, the thread is not retried
+            why = f"site prompt: {prompt[:120]!r}"
         elif page.query_selector(LOGGED_IN) is None:
             why = "not logged in any more"
         if why:
@@ -161,7 +166,7 @@ class OnePoint3Acres:
         if self.blocked:                       # one block stops the run: no more pages until a person looked
             raise Blocked("stopped after an earlier block in this run")
         try:
-            self._open(ref.url)
+            self._open(ref.url, thread=True)
         except Blocked as e:
             self.blocked = True
             self._blocked(e)

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from sde_rag import db, notify
 from sde_rag.http import NotModified, Validators, normalize_url
 from sde_rag.settings import data_dir, section
-from sde_rag.sources.base import Connector, DocRef, RawDoc
+from sde_rag.sources.base import Connector, DocRef, RawDoc, SkipDoc
 from sde_rag.text import sha1
 
 log = logging.getLogger("sde_rag.fetch")
@@ -135,7 +135,8 @@ def sync_source(name: str, connector: Connector, heartbeat=lambda: None) -> dict
     for ref in listing.refs:
         heartbeat()
         seen = _seen(ref.source, ref.external_id)
-        if seen and seen["doc_id"] and ref.version is not None and seen["version"] == ref.version:
+        known = seen and (seen["doc_id"] or (seen["content_hash"] or "").startswith("skip:"))
+        if known and ref.version is not None and seen["version"] == ref.version:
             stats["seen"] += 1
             c.execute("UPDATE seen_items SET last_seen_at = ? WHERE id = ?", (db.now_iso(), seen["id"]))
             continue
@@ -157,6 +158,12 @@ def sync_source(name: str, connector: Connector, heartbeat=lambda: None) -> dict
             stats["not_modified"] += 1
             with db.tx() as t:
                 _upsert_seen(t, ref, url_norm=normalize_url(ref.url), doc_id=seen["doc_id"] if seen else None)
+            continue
+        except SkipDoc as e:
+            stats["skipped_docs"] = stats.get("skipped_docs", 0) + 1
+            with db.tx() as t:
+                _upsert_seen(t, ref, url_norm=normalize_url(ref.url), doc_id=None,
+                             content_hash=f"skip:{str(e)[:200]}")
             continue
         except Exception as e:  # one bad document must not stop the source
             failed.append(ref)

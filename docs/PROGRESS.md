@@ -210,6 +210,23 @@ capability tests (including the planner) and the gate, then three days of schedu
   instead of −0.28 and −0.95). Most of the latency is the planner's thinking and the extra grader calls.
 - Tests: 17 new (115 in total).
 
+### Fixes after the first scheduled run (2026-10-31)
+
+- The 18:30 run did nothing ("already done for this run key"): a run started by hand earlier that afternoon had
+  used the default half-day key. Now `sde-rag ingest` started by hand gets its own key (`manual-<time>`); the
+  timer's unit passes `--scheduled` for the half-day key.
+- A manual run at 18:59 instead. 1Point3Acres (allowed in the 18:00 hour) held the shared Chrome profile from
+  18:59 to 19:06, across 19:00 when the other project's hourly job runs; that job had nothing to post that hour,
+  so it did not need the profile. Lesson: `run_hours` alone does not keep the session clear of the hour; start
+  runs that include it before about 18:40.
+- In that run, one thread needing read permission above 80 was taken for a block, stopped the rest of the source
+  and raised an alert. Now a prompt about one thread skips that thread (`SkipDoc`: remembered as seen, never
+  retried) and the run goes on.
+- The run (stopped at 19:25 and resumed from its checkpoint): Medium 31 posts, Reddit 309, LeetCode 80 (220
+  left for later runs), 1Point3Acres 23; extraction of 60 posts kept 477 questions (382 new), 7 discarded as
+  unquoted (1.4%).
+- Tests: 2 new (117 in total).
+
 ## Milestone 3: monitoring and evaluation — planned
 
 Monitoring and evaluation pages, alert rules, evaluation sets, generation and correctness evaluation with judge

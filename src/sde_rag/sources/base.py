@@ -40,6 +40,11 @@ class RawDoc:
     last_modified: str | None = None
 
 
+class SkipDoc(Exception):
+    """This one document cannot be read (a permission it needs, deleted): remembered as seen, never retried,
+    and not a failure of the source."""
+
+
 @dataclass
 class ListResult:
     refs: list[DocRef]
