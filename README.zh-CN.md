@@ -4,7 +4,8 @@
 
 一个为了帮助软件工程师准备面试而做的 RAG（检索增强生成）系统。
 
-它从题库仓库收集面试题，从 Hacker News 和 dev.to 收集面经；清洗后打上标签（编程语言、框架、系统设计、AI/机器学习、
+它从题库仓库收集面试题，从 Hacker News、dev.to、Reddit、Medium、LeetCode Discuss 和一亩三分地收集面经
+（面经里的题由 LLM 抽取，每道题都要和帖子里的原文引用对得上），合并近似重复的题，清洗后打上标签（编程语言、框架、系统设计、AI/机器学习、
 自动化、计算机基础、算法、行为面试），建立混合检索索引，然后回答两类问题，并标出来源：
 
 - **某个方向常考什么**：比如“Go 面试常问哪些并发问题？”。系统按子主题列出出现最多的题，并注明每道题出现了几次、出现在哪里。
@@ -65,8 +66,19 @@ uv run sde-rag doctor                             # 检查配置问题，以及�
 |---|---|---|---|
 | `agents.toml` | 否（从 `agents.example.toml` 复制） | 后端、每个角色由哪个后端执行（含备用后端和卡死判定）、嵌入模型 | `SDE_BACKEND__<名字>__<字段>`、`SDE_ROLE__<名字>__<字段>`、`SDE_MODEL__EMBEDDER__<字段>` |
 | `settings.toml` | 是 | 数据目录、额外的 dotenv 文件、告警渠道、抓取礼貌参数、每次运行的上限 | `SDE_SETTING__<段>__<字段>` |
-| `sources.toml` | 是 | 连接器：题库仓库、Hacker News、dev.to；`publish = false` 的来源不进入公开数据集 | `SDE_SOURCE__<名字>__<字段>` |
+| `sources.toml` | 是 | 连接器：题库仓库、Hacker News、dev.to、Reddit、Medium、LeetCode Discuss、一亩三分地；`publish = false` 的来源不进入公开数据集 | `SDE_SOURCE__<名字>__<字段>` |
 | `taxonomy.toml` | 是 | 大类、标签和别名 | — |
+
+一亩三分地用无头 Chrome 读取（需要安装 Google Chrome），使用一个你手动登录过的专用 profile；启动时必须带
+`--password-store=basic`，否则 systemd 任务读不到 cookie。在 `config/settings.local.toml` 里指定，没有配置时跳过这个来源：
+
+```toml
+[onepoint3acres]
+chrome_profile = "~/path/to/logged-in-profile"
+```
+
+每天只在 18:30 那次运行里读取，最多 30 篇帖子，每次翻页前随机等 10 到 20 秒，只读不写。遇到登录页、验证码或权限提示就停下并告警；
+帖子里需要更高积分才能看的部分不读取。它的内容不进入公开数据集（`publish = false`）。
 
 密钥从不写进 TOML 文件：后端只写保存密钥的环境变量名（`api_key_env`）。`sde-rag agents show` 列出每个角色用的后端和模型；
 `sde-rag doctor` 检查每个角色的后端是否具备所需能力（结构化输出、流式输出），以及每个后端能否响应。

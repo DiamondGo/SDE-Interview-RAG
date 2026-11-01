@@ -4,11 +4,19 @@ from sde_rag.sources.base import Connector, DocRef, ListResult, RawDoc
 from sde_rag.sources.devto import DevTo
 from sde_rag.sources.github_repos import GitHubRepos
 from sde_rag.sources.hn import HackerNews
+from sde_rag.sources.leetcode import LeetCodeDiscuss
+from sde_rag.sources.medium import Medium
+from sde_rag.sources.onepoint3acres import OnePoint3Acres
+from sde_rag.sources.reddit import Reddit
 
 CONNECTOR_TYPES = {
     "github_repos": GitHubRepos,
     "hn_algolia": HackerNews,
     "devto": DevTo,
+    "leetcode_discuss": LeetCodeDiscuss,
+    "medium": Medium,
+    "reddit_rss": Reddit,
+    "onepoint3acres": OnePoint3Acres,
 }
 
 

@@ -75,8 +75,8 @@
 | Hacker News | 面经讨论 | Algolia API | 200 | LLM 抽题 | M1 |
 | dev.to | 面经 + 备考文章 | 公开 API `?tag=interview` 等 | 200 | 正文提取 + LLM | M1 |
 | LeetCode Discuss（interview-experience / interview-question） | 面经 | GraphQL `ugcArticleDiscussionArticles`（非官方接口） | 200 | LLM 抽题 | M2（低速） |
-| Medium | 面经 + 备考文章 | tag RSS | 200 | RSS 正文 + LLM | M2 |
-| Reddit（r/leetcode、r/cscareerquestions、r/ExperiencedDevs 等） | 面经 | 子版块 search RSS（JSON 接口返回 403） | RSS 200 | LLM 抽题 | M2 |
+| Medium | 面经 + 备考文章 | 用 tag RSS 发现文章（只有摘要），正文从作者的 feed 读取（文章页对普通请求返回 403） | 200 | feed 正文 + LLM | M2 |
+| Reddit（r/leetcode、r/cscareerquestions、r/ExperiencedDevs 等） | 面经 | 子版块 search RSS，搜标题含 “interview” 的帖子（JSON 接口返回 403）；帖子正文就在 feed 里；两个 feed 之间隔 20 秒（隔 8 秒会被 429） | RSS 200 | LLM 抽题 | M2 |
 | 一亩三分地 | 中文面经（质量高） | 无头 Chrome，使用已登录的专用 profile（第 3.4 节） | 直接请求 403 | LLM 抽题（中文原文，题目规范成英文） | M2（低频） |
 | Stack Exchange | 少量概念题 | 官方 API | 200 | 规则 | 可选 |
 | Glassdoor | 面经 | 服务条款禁止抓取，有登录墙 | — | — | 不做 |
@@ -132,6 +132,9 @@ class Connector(Protocol):
 - **低频**：每天只在两次运行中的一次（18:30）抓取；每次最多 30 个帖子；页面之间间隔 10 到 20 秒（随机）；只读面经版块的列表页和帖子页，不发帖、不回帖、不点任何会改变账号状态的按钮。列表页同样经过 `seen_items` 过滤，已经抓过的帖子不再打开。
 - **遇到登录页、验证码或权限提示就停止**并告警（`notify.alert("source:1point3acres")`），由用户手动处理，不自动登录、不绕过验证。
 - 帖子内容只用于个人备考；有阅读权限限制的内容只存在本地，UI 只展示摘录和原帖链接。
+- **需要积分才能看的部分保持隐藏。** 很多帖子把题目放在需要更高积分的隐藏块里（2026-10-31 实测：门槛 500 分，账号只有 6 分）。连接器保存可见的部分，在隐藏处留一个标记，并给文档加上 `partial` 提示；不会去挣积分（那需要发帖）。
+- 页面是否被拦截根据页面结构判断，不看正文文字（帖子里本来就会谈到登录和验证码）：跳转到登录或验证网址、标题是浏览器检查页、出现 Discuz 的提示框 `#messagetext`，或者页面上没有账号的设置链接（已退出登录）。一次被拦截就停止本次运行，不再打开其他页面。
+- 记录本次会话启动的 Chrome 进程；如果运行看门狗终止了卡住的运行，也会一起终止这些进程，避免 profile 一直被锁住，影响共用这个 profile 的另一个任务。
 
 ---
 

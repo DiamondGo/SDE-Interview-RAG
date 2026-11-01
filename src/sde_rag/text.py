@@ -63,10 +63,21 @@ def tokens(text: str) -> list[str]:
     return _TOKEN.findall(unicodedata.normalize("NFKC", strip_markup(text)).lower())
 
 
+_ELLIPSIS = re.compile(r"\.{3,}|…|\[\.\.\.\]")
+
+
 def quote_similarity(quote: str, text: str, *, max_tokens: int = 60) -> float:
     """How well `quote` matches some passage of `text` (1.0 = verbatim), ignoring markup, case and punctuation.
 
-    Windows of the quote's length are compared wherever one of the quote's first or last tokens occurs."""
+    A quote that skips text with "..." matches when each of its pieces does (the weakest piece counts).
+    Windows of a piece's length are compared wherever one of its first or last tokens occurs."""
+    pieces = [p for p in _ELLIPSIS.split(quote) if len(tokens(p)) >= 3]
+    if len(pieces) > 1:
+        return min(_piece_similarity(p, text, max_tokens) for p in pieces)
+    return _piece_similarity(quote, text, max_tokens)
+
+
+def _piece_similarity(quote: str, text: str, max_tokens: int) -> float:
     q = tokens(quote)[:max_tokens]
     if not q:
         return 0.0

@@ -123,9 +123,14 @@ def sync_source(name: str, connector: Connector, heartbeat=lambda: None) -> dict
         _record_failure(name, f"listing failed: {type(e).__name__}: {e}")
         stats["errors"].append(f"{name}: listing failed: {type(e).__name__}: {str(e)[:300]}")
         return stats
+    if listing.skipped:
+        stats["skipped"] = listing.skipped
+        log.info("source %s skipped this run: %s", name, listing.skipped)
+        return stats
     stats["listed"] = len(listing.refs)
     stats["errors"] += [f"{name}: {e}" for e in listing.errors]
     failed: list[DocRef] = []
+    cap = (getattr(connector, "cfg", None) or {}).get("max_downloads_per_run")
     heartbeat()
     for ref in listing.refs:
         heartbeat()
@@ -133,6 +138,10 @@ def sync_source(name: str, connector: Connector, heartbeat=lambda: None) -> dict
         if seen and seen["doc_id"] and ref.version is not None and seen["version"] == ref.version:
             stats["seen"] += 1
             c.execute("UPDATE seen_items SET last_seen_at = ? WHERE id = ?", (db.now_iso(), seen["id"]))
+            continue
+        if cap is not None and stats["downloaded"] + stats["failed"] >= int(cap):
+            failed.append(ref)                   # for the next run: not a failure, but listed again
+            stats["deferred"] = stats.get("deferred", 0) + 1
             continue
         if ref.outbound_url:
             known = _doc_by_url(normalize_url(ref.outbound_url))

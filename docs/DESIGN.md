@@ -75,8 +75,8 @@ Design conclusions drawn from these numbers:
 | Hacker News | Interview experience discussions | Algolia API | 200 | LLM extraction | M1 |
 | dev.to | Interview experiences plus prep articles | Public API, `?tag=interview` and similar | 200 | Body extraction plus LLM | M1 |
 | LeetCode Discuss (interview-experience / interview-question) | Interview experiences | GraphQL `ugcArticleDiscussionArticles` (unofficial API) | 200 | LLM extraction | M2 (low rate) |
-| Medium | Interview experiences plus prep articles | Tag RSS | 200 | RSS body plus LLM | M2 |
-| Reddit (r/leetcode, r/cscareerquestions, r/ExperiencedDevs, and others) | Interview experiences | Subreddit search RSS (the JSON API returns 403) | RSS 200 | LLM extraction | M2 |
+| Medium | Interview experiences plus prep articles | Tag RSS for discovery (snippets only); the full text from the author's feed (article pages return 403 to plain requests) | 200 | Feed body plus LLM | M2 |
+| Reddit (r/leetcode, r/cscareerquestions, r/ExperiencedDevs, and others) | Interview experiences | Subreddit search RSS for titles containing "interview" (the JSON API returns 403); the post text is in the feed; 20 seconds between feeds (8 seconds got 429) | RSS 200 | LLM extraction | M2 |
 | 1Point3Acres | Chinese-language interview experiences (high quality) | Headless Chrome with a dedicated, logged-in profile (Section 3.4) | Direct requests return 403 | LLM extraction (Chinese original; questions normalized into English) | M2 (low frequency) |
 | Stack Exchange | A small number of concept questions | Official API | 200 | Rules | Optional |
 | Glassdoor | Interview experiences | Terms of service forbid crawling; behind a login wall | — | — | Not planned |
@@ -132,6 +132,9 @@ The source list, crawl schedule, rate limits, and per-run caps are all defined i
 - **Low frequency**: it crawls in only one of the two daily runs (18:30); at most 30 posts per run; 10 to 20 seconds (random) between pages. It reads only the listing pages and post pages of the interview experience board. It never posts, never replies, and never clicks any button that changes the account's state. Listing pages also go through the `seen_items` filter, so posts that were already crawled are not opened again.
 - **It stops on a login page, a CAPTCHA, or a permission prompt** and sends an alert (`notify.alert("source:1point3acres")`). The user handles it manually; the connector never logs in automatically and never bypasses verification.
 - Post content is used only for personal interview preparation. Content with read-permission restrictions is stored only locally, and the UI shows only excerpts and links to the original posts.
+- **Parts hidden behind the site's points threshold stay hidden.** Many posts put their questions in a block that needs more points than the account has (measured 2026-10-31: the threshold was 500 and the account had 6). The connector stores the visible text with a marker where a part was hidden, and the document gets the hint `partial`; it never tries to earn points (that would mean posting).
+- Whether the page is blocked is judged from its structure, never from its text (posts talk about logins and verification codes too): a login or verification URL, a browser-check title, Discuz's prompt box `#messagetext`, or the account's settings link missing (logged out). One block stops the run: no further pages are opened.
+- The Chrome processes started for the session are recorded; if the run watchdog kills a stuck run, it kills them too, so the profile is not left locked for the other job that uses it.
 
 ---
 

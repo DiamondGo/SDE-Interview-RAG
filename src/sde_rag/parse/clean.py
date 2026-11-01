@@ -1,5 +1,6 @@
 """Raw content -> cleaned Markdown. Keeps headings, lists, code blocks, tables and <details> Q&A blocks."""
 
+import html
 import re
 import unicodedata
 
@@ -35,6 +36,31 @@ def html_to_markdown(html: str, url: str | None = None) -> str:
                               include_links=False, include_images=False, include_comments=False,
                               favor_recall=True) or ""
     return clean_markdown(out)
+
+
+_FRAG_RULES = [
+    (re.compile(r"<(script|style)\b.*?</\1>", re.S | re.I), ""),
+    (re.compile(r"<pre\b[^>]*>(.*?)</pre>", re.S | re.I),
+     lambda m: "\n\n```\n" + re.sub(r"<[^>]+>", "", re.sub(r"<br\s*/?>", "\n", m.group(1))) + "\n```\n\n"),
+    (re.compile(r"<h([1-6])\b[^>]*>(.*?)</h\1>", re.S | re.I), lambda m: f"\n\n{'#' * int(m.group(1))} {m.group(2)}\n\n"),
+    (re.compile(r"<li\b[^>]*>", re.I), "\n- "),
+    (re.compile(r"<br\s*/?>", re.I), "\n"),
+    (re.compile(r"</?(p|div|ul|ol|blockquote|figure|section|table|tr)\b[^>]*>", re.I), "\n\n"),
+    (re.compile(r"</t[dh]>", re.I), " | "),
+    (re.compile(r"<code\b[^>]*>(.*?)</code>", re.S | re.I), r"`\1`"),
+    (re.compile(r"<(strong|b)\b[^>]*>(.*?)</\1>", re.S | re.I), r"**\2**"),
+    (re.compile(r"<[^>]+>"), ""),
+]
+
+
+def fragment_to_markdown(fragment: str) -> str:
+    """An HTML fragment from a feed (no page around it, so nothing for trafilatura to strip) -> Markdown."""
+    t = fragment
+    for pattern, repl in _FRAG_RULES:
+        t = pattern.sub(repl, t)
+    t = html.unescape(t).replace("\xa0", " ")
+    t = "\n".join(re.sub(r"[ \t]+", " ", line).strip() for line in t.split("\n"))
+    return clean_markdown(t)
 
 
 def clean(content: str, content_type: str, url: str | None = None) -> str:

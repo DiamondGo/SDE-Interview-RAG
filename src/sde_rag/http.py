@@ -90,12 +90,19 @@ class HttpClient:
             hdrs["If-None-Match"] = validators.etag
         if validators and validators.last_modified:
             hdrs["If-Modified-Since"] = validators.last_modified
+        return self._send("GET", url, params=params, headers=hdrs)
+
+    def post(self, url: str, *, json: dict, headers: dict | None = None) -> httpx.Response:
+        """For query APIs (GraphQL) only: requests that read, never ones that change anything."""
+        return self._send("POST", url, json=json, headers=dict(headers or {}))
+
+    def _send(self, method: str, url: str, **kw) -> httpx.Response:
         host = urlsplit(url).netloc
         last_exc: Exception | None = None
         for attempt in range(1, self.max_attempts + 1):
             self._space(host)
             try:
-                r = self.client.get(url, params=params, headers=hdrs)
+                r = self.client.request(method, url, **kw)
             except httpx.TransportError as e:
                 last_exc = e
                 self._backoff(attempt, None)
@@ -107,7 +114,7 @@ class HttpClient:
                 continue
             r.raise_for_status()
             return r
-        raise last_exc or httpx.HTTPError(f"GET {url} failed")
+        raise last_exc or httpx.HTTPError(f"{method} {url} failed")
 
     def _backoff(self, attempt: int, retry_after: str | None) -> None:
         delay = min(60.0, 2 ** attempt) + random.uniform(0, 1)

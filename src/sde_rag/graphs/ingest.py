@@ -190,12 +190,15 @@ def preflight(state: IngestState, runtime: Runtime[IngestContext]) -> dict:
 def plan(state: IngestState):
     cfgs = source_configs()
     wanted = state.get("sources")
+    hour = datetime.now().astimezone().hour
     due = []
     for name, cfg in cfgs.items():
         if wanted:
             if name in wanted:
                 due.append(name)
-        elif cfg.get("enabled", True) and (state.get("force") or source_due(name, float(cfg.get("interval_hours", 12)))):
+        elif cfg.get("enabled", True) and (state.get("force") or (
+                source_due(name, float(cfg.get("interval_hours", 12)))
+                and hour in cfg.get("run_hours", range(24)))):   # e.g. only the evening run
             due.append(name)
     if not due:
         return "clean"
@@ -209,7 +212,7 @@ def fetch_source(payload: dict) -> dict:
     try:
         st = sync_source(name, connector, heartbeat=Heartbeat(payload["run_id"], payload["owner"]))
     finally:
-        connector.http.close()
+        (getattr(connector, "close", None) or connector.http.close)()
     errors = st.pop("errors")
     log.info("source %s: %s", name, st)
     return {"stats": {f"fetch:{name}": st}, "errors": errors[:50]}

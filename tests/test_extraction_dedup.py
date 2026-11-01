@@ -27,6 +27,8 @@ def test_quote_similarity_accepts_verbatim_and_light_edits_but_not_inventions():
     assert quote_similarity("asked me to implement a LRU cache with O(1) get and put", POST) > 0.8
     assert quote_similarity("Reverse a linked list in place without extra memory", POST) < 0.5
     assert quote_similarity("", POST) == 0.0
+    assert quote_similarity("asked me to implement an LRU cache ... Design a rate limiter for a public API", POST) == 1.0
+    assert quote_similarity("asked me to implement an LRU cache … reverse a linked list in place", POST) < 0.8
     zh = "一面问了如何设计一个限流器，然后聊了滑动窗口。"
     assert quote_similarity("如何设计一个限流器", zh) == 1.0
     assert quote_similarity("如何实现分布式锁", zh) < 0.5

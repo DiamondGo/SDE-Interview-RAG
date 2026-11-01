@@ -8,6 +8,7 @@ check_ui: the systemd watchdog timer's probe of the UI's /health endpoint; two f
 """
 
 import faulthandler
+import itertools
 import logging
 import os
 import subprocess
@@ -27,6 +28,21 @@ EXIT_STALLED = 3
 UI_UNIT = "sde-ui.service"
 
 _last_progress = time.monotonic()
+_cleanups: dict[int, Callable[[], None]] = {}
+_keys = itertools.count()
+
+
+def on_kill(fn: Callable[[], None]) -> int:
+    """Run `fn` (from the watchdog thread, so it must be thread-safe) before the watchdog exits the process.
+    os._exit skips atexit and finally blocks: child processes such as a browser holding a profile lock
+    would outlive the run."""
+    key = next(_keys)
+    _cleanups[key] = fn
+    return key
+
+
+def cancel_on_kill(key: int) -> None:
+    _cleanups.pop(key, None)
 
 
 def progress() -> None:
@@ -77,6 +93,11 @@ class RunWatchdog:
                 self.on_stall(path)
             except Exception:
                 log.exception("%s: marking the stalled run failed", self.tag)
+            for fn in list(_cleanups.values()):
+                try:
+                    fn()
+                except Exception:
+                    log.exception("%s: cleanup before exit failed", self.tag)
             self._exit(EXIT_STALLED)
             return
 

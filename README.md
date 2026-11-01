@@ -4,8 +4,9 @@
 
 A RAG (retrieval-augmented generation) system built to help software engineers prepare for interviews.
 
-It collects interview questions from question repositories and interview experiences from Hacker News and
-dev.to, cleans and tags them (languages, frameworks, system design, AI/ML, automation, CS fundamentals,
+It collects interview questions from question repositories and interview experiences from Hacker News, dev.to,
+Reddit, Medium, LeetCode Discuss and 1Point3Acres (questions are extracted from the posts by an LLM, each one
+checked against a quote from its post), merges near-duplicate questions, cleans and tags them (languages, frameworks, system design, AI/ML, automation, CS fundamentals,
 algorithms, behavioral), indexes them for hybrid search, and answers two kinds of requests with cited sources:
 
 - **What gets asked about a topic**: "What are common Go concurrency interview questions?" lists the questions
@@ -75,8 +76,21 @@ Configuration is layered: `config/<name>.toml`, then `config/<name>.local.toml`,
 |---|---|---|---|
 | `agents.toml` | no (copy `agents.example.toml`) | Backends, which backend serves each role (with fallbacks and stall timeouts), the embedding model | `SDE_BACKEND__<NAME>__<FIELD>`, `SDE_ROLE__<NAME>__<FIELD>`, `SDE_MODEL__EMBEDDER__<FIELD>` |
 | `settings.toml` | yes | Data directory, extra dotenv files, alert channels, HTTP politeness, per-run limits | `SDE_SETTING__<SECTION>__<FIELD>` |
-| `sources.toml` | yes | Connectors: question repositories, Hacker News, dev.to; `publish = false` keeps a source out of the dataset | `SDE_SOURCE__<NAME>__<FIELD>` |
+| `sources.toml` | yes | Connectors: question repositories, Hacker News, dev.to, Reddit, Medium, LeetCode Discuss, 1Point3Acres; `publish = false` keeps a source out of the dataset | `SDE_SOURCE__<NAME>__<FIELD>` |
 | `taxonomy.toml` | yes | Categories, tags and their aliases | — |
+
+1Point3Acres is read in headless Chrome (Google Chrome must be installed) with a dedicated profile that you
+log in to by hand, started with `--password-store=basic` so that systemd jobs can read its cookies. Name it in
+`config/settings.local.toml`; without it the source is skipped:
+
+```toml
+[onepoint3acres]
+chrome_profile = "~/path/to/logged-in-profile"
+```
+
+It is read once a day (the 18:30 run), at most 30 posts, 10 to 20 seconds between pages, read-only. A login
+page, a CAPTCHA or a permission prompt stops it with an alert; parts of posts hidden behind the site's points
+threshold are not read. Its content is never published (`publish = false`).
 
 Keys never go into TOML files: a backend names the environment variable that holds its key (`api_key_env`).
 `sde-rag agents show` prints which backend and model serve each role; `sde-rag doctor` checks that each

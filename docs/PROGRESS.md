@@ -135,6 +135,36 @@ gate, then three days of scheduled runs for acceptance.
   has 6 mentions from 3 sources.
 - Tests: 10 new (79 in total).
 
+### Step 3: new sources — done (2026-10-31)
+
+- Reddit (`reddit_rss`): search RSS per subreddit (leetcode, cscareerquestions, ExperiencedDevs, csMajors,
+  developersIndia) for titles containing "interview"; the post text comes with the feed, so a post costs no
+  extra request. Link posts are matched to content already stored instead of being fetched. 8 seconds between
+  feeds got 429; now 20.
+- Medium (`medium`): tag feeds carry only a snippet and article pages answer 403, so a post found by tag is read
+  from its author's feed (each feed fetched once a run). Posts in publication feeds without full text keep
+  their snippet and are skipped by cleaning as too short.
+- LeetCode Discuss (`leetcode_discuss`): GraphQL listing (newest first, stops at the high-water mark) and post
+  bodies in Markdown; 3 seconds between requests; at most 80 posts per run.
+- 1Point3Acres (`onepoint3acres`, DESIGN 3.4): headless Chrome on the logged-in profile (the same launch flags
+  as the profile's other user). Only the 18:30 run, software-engineering posts only (`码农类`), at most 30 posts,
+  10 to 20 seconds before every page, a 15-minute session limit. The profile in use means the run is skipped
+  (neither success nor failure); a block (logged out, browser check, site prompt) stops the run with an alert.
+  The visible text is stored; parts behind the points threshold are marked and not read. `publish = false`.
+- Framework: per-source `max_downloads_per_run` (the rest is listed again next run, not failed), `run_hours`,
+  skipped listings, `HttpClient.post` for read-only query APIs, a converter for HTML fragments from feeds, and
+  quotes that skip text with "..." are checked piece by piece (the two questions discarded in the trial were real
+  questions quoted that way).
+- Live check on a copy of the working database: Reddit listed 200 posts (two of five feeds got 429 at 8 seconds),
+  Medium 39 with full text from author feeds, LeetCode 300 (back to 2026-10-12), 1Point3Acres 50
+  software-engineering threads from two list pages; 3 posts read in 63 seconds, all with a hidden part; the
+  profile lock was released afterwards. Extraction on them: the eBay phone-screen question (Meeting Rooms II)
+  from the visible part of a 1Point3Acres post, with company and round from the board's labels; 11 questions
+  from a Medium Flipkart experience; nothing from a Netflix post whose questions were all hidden.
+- Extraction: 60 posts per run (about 25 seconds a post); the new sources add several hundred posts, so the
+  backlog takes a week or two of scheduled runs.
+- Tests: 10 new (89 in total).
+
 ## Milestone 3: monitoring and evaluation — planned
 
 Monitoring and evaluation pages, alert rules, evaluation sets, generation and correctness evaluation with judge

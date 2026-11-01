@@ -45,6 +45,8 @@ class ListResult:
     refs: list[DocRef]
     state: dict
     errors: list[str] = field(default_factory=list)
+    skipped: str | None = None           # why this run could not look (e.g. the browser profile is in use):
+                                         # neither a success nor a failure, try again next run
 
 
 class Connector(Protocol):
@@ -55,8 +57,11 @@ class Connector(Protocol):
     def fetch_doc(self, ref: DocRef, validators: Validators | None) -> RawDoc: ...
 
     def finalize(self, state: dict, failed: list[DocRef]) -> dict:
-        """Adjust the new state when some documents failed, so they are listed again next time."""
+        """Adjust the new state when some documents failed (or were left for the next run by the per-run
+        download cap), so they are listed again next time."""
         ...
+
+    # Optional: def close(self) -> None, for connectors holding more than `http` (a browser).
 
 
 def iso(ts: float | int | str | None) -> str | None:

@@ -84,3 +84,44 @@ settle_hours = 72          # reactions accumulate slowly; judge an article once 
 backfill_pages = 10        # 100 articles per page and tag on the first run
 overlap_hours = 24
 per_run_limit = 150
+
+[sources.reddit]
+type = "reddit_rss"
+enabled = true
+interval_hours = 12
+delay_s = 20.0             # Reddit answered 429 to feeds 8 seconds apart
+subreddits = ["leetcode", "cscareerquestions", "ExperiencedDevs", "csMajors", "developersIndia"]
+query = "title:interview"  # the extractor drops posts that turn out not to be about interviews
+window = "month"           # newest first within the last month; seen posts are skipped without a request
+
+[sources.medium]
+type = "medium"
+enabled = true
+interval_hours = 12
+delay_s = 2.0
+tags = ["interview-experience", "coding-interview", "system-design-interview", "interview-questions"]
+
+[sources.leetcode]
+type = "leetcode_discuss"
+enabled = true
+interval_hours = 12
+delay_s = 3.0              # unofficial API: keep it slow
+tags = ["interview"]
+page_size = 50
+max_pages = 6              # newest first; stops earlier at the high-water mark
+overlap_hours = 24
+max_downloads_per_run = 80 # the rest wait for the next run
+
+[sources.onepoint3acres]
+type = "onepoint3acres"    # headless Chrome with the profile in [onepoint3acres] of settings (local)
+enabled = true
+publish = false            # read with a login: never in the public dataset
+interval_hours = 20
+run_hours = [18]           # only the 18:30 run; another job uses the same profile on the hour
+forum_id = 145             # 海外面经
+include_pattern = "码农类"  # software-engineering posts (data science and PM have their own boards)
+max_pages = 2              # newest first, 35 threads a page
+max_downloads_per_run = 30
+page_delay_s = [10, 20]    # random wait before every page
+page_timeout_s = 60
+session_limit_s = 900      # the whole browser session
