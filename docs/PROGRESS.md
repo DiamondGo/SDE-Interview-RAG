@@ -75,12 +75,13 @@ Known limitations, planned for later milestones:
 ## Milestone 2: interview experiences, reliability and the reviewer — in progress
 
 Scope: LeetCode Discuss, Reddit, Medium and 1point3acres connectors; LLM question extraction with fabrication
-checks; near-duplicate merging; reranking; the grade/rewrite loop; dead-letter replay; the full watchdog; the
-reviewer role; agent capability tests with the pre-ingest gate; systemd timers.
+checks; near-duplicate merging; reranking; the grade/rewrite loop; the planner for complex questions (added to the
+design on 2026-10-31: subqueries with success criteria, replanning when they fail; DESIGN 5.4.1); dead-letter
+replay; the full watchdog; the reviewer role; agent capability tests with the pre-ingest gate; systemd timers.
 
 Order of work: (1) reliability and scheduling; (2) LLM extraction, fabrication checks and near-duplicate merging;
-(3) the new sources; (4) reranking, the grade/rewrite loop and the reviewer; (5) agent capability tests and the
-gate, then three days of scheduled runs for acceptance.
+(3) the new sources; (4) reranking, the grade/rewrite loop and the reviewer; (4b) the planner; (5) agent
+capability tests (including the planner) and the gate, then three days of scheduled runs for acceptance.
 
 ### Step 1: reliability and scheduling — done (2026-10-31)
 

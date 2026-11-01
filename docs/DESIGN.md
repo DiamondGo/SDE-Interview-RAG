@@ -243,17 +243,22 @@ class AccessPolicy(Protocol):
                 ┌────────────────────────────────────────┴─ query graph (called by the Gradio UI) ─────────────────────────────────
  User ─► UI ───►│ auth ─► guard ─► understand ─┬─ topic ─► browse_retrieve ─► compose_list ───────────────────┐
                 │                              │                                                              │
-                │                              └─ solve ─► hybrid_retrieve ─► rerank ─► grade                 │
-                │                                          ▲                              │                   │
-                │                                          └─ rewrite (at most 2 rounds)◄─┤ not enough        │
-                │                                                                         │                   │
-                │                                                                         │ enough            │
+                │                              ├─ solve ─► hybrid_retrieve ─► rerank ─► grade                 │
+                │                              │           ▲                              │                   │
+                │                              │           └─ rewrite (at most 2 rounds)◄─┤ not enough        │
+                │                              │                                          │ enough            │
+                │                              └─ complex ─► plan ─► subqueries ─► check_plan                 │
+                │                                            ▲       (each: retrieve,     │                   │
+                │                                            │        rerank, criteria,   │ all met, or       │
+                │                                            │        one retry)          │ budget spent      │
+                │                                            └─ replan (at most 1) ◄──────┤ unmet             │
                 │                                                                         ▼                   ▼
                 │                                                                      generate ─► verify ─► log ─► review (async)
                 │
                 │ auth:        gets the Principal (currently always the default user)
                 │ guard:       validation, prompt-injection detection
-                │ understand:  intent, filters, English search terms
+                │ understand:  intent, complexity, filters, English search terms
+                │ plan:        a complex question becomes subqueries, each with success criteria (Section 5.4.1)
                 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
                 ┌─ evaluate graph (nightly) + agent capability tests (pytest -m agent / preflight before crawling) ────────────────
                 │ retrieval eval (recall@k, MRR) ─► generation eval (faithfulness, citations, correctness)
@@ -269,7 +274,8 @@ The table below shows the defaults in the example configuration `config/agents.e
 
 | Role | Default model | Reason |
 |---|---|---|
-| Question extraction, tagging, query understanding, sufficiency grading | Backend `local` (Qwen3.8-Flash-Next on the local network), thinking off | Not metered; structured output |
+| Question extraction, tagging, query understanding, sufficiency grading and success-criteria checks | Backend `local` (Qwen3.8-Flash-Next on the local network), thinking off | Not metered; structured output |
+| **Planner** (splitting complex questions, replanning) | Backend `local`, thinking on; falls back to `gateway` | Decomposition needs reasoning; it runs only for questions judged complex, so the extra latency is rare |
 | Answer generation | Backend `gateway` (gpt-6.1-sol); falls back to `local` (thinking on) on failure or stall | The quality of the explanation matters most; a single user stays within the 0.5 req/s rate limit |
 | Offline reference answers (optional) | Backend `gateway`, with a daily cap on the number | Generated only for frequent questions that have no answer in the sources; shown only after passing review |
 | **Reviewer** (whether the domain knowledge and solution are correct) | `claude -p`, **Sonnet 5.5** (`claude-sonnet-5-5`), read-only mode, output via `--json-schema` | Strong reasoning; a different source from the generation model, which avoids the model "grading its own work" (Section 7.6) |
@@ -375,7 +381,7 @@ backend = "gateway"             # no Claude subscription, so the reviewer uses t
 - Every role has a backend, and every referenced backend exists; the required environment variables exist; commands for `cli` backends are on the `PATH`.
 - **Capability matching**: each role declares the capabilities it needs, each backend declares the capabilities it provides, and a mismatch is an error. For example:
   - `generator` needs `streaming`. CLI backends do not support streaming, so configuring a CLI backend for it is an error unless `stream = false` is set explicitly;
-  - `extractor`, `tagger`, `router`, and `reviewer` need `structured_output`. Cursor `agent` does not support JSON schemas and cannot be used for these roles;
+  - `extractor`, `tagger`, `router`, `planner`, `grader`, and `reviewer` need `structured_output`. Cursor `agent` does not support JSON schemas and cannot be used for these roles;
   - `reviewer` and `judge` should come from a different source than `generator`. Configuring them with the same backend produces a warning (not an error), because section 9.4 of the reference document warns that a model "grading its own work" is biased.
 - When the embedding model and the index disagree (the embedding model recorded in the index manifest differs from the configuration), queries are refused with a prompt to run a blue-green rebuild first, so that old and new vectors are never mixed (section 4.4 of the reference document).
 
@@ -393,21 +399,100 @@ backend = "gateway"             # no Claude subscription, so the reviewer uses t
 |---|---|---|
 | `auth` | Gets the `Principal` through `AuthProvider` (currently always the default user) | Fail closed: return an error |
 | `guard` | Length limit; simple prompt-injection detection; empty input | Return a message directly |
-| `understand` | Structured output from the local LLM: `intent` ∈ {`topic` (common questions for a topic), `solve` (how to solve a particular question), `experience` (interview experiences for a company or role), `out_of_scope`}; filters (category, tags, company, level); 1 to 3 **English** search terms; rewrites follow-up questions using the conversation history | Rule-based intent detection (keywords), with the raw query used directly as the search term |
+| `understand` | Structured output from the local LLM: `intent` ∈ {`topic` (common questions for a topic), `solve` (how to solve a particular question), `experience` (interview experiences for a company or role), `out_of_scope`}; `complexity` ∈ {`simple`, `complex`} with a one-line reason (Section 5.4.1); filters (category, tags, company, level); 1 to 3 **English** search terms; rewrites follow-up questions using the conversation history | Rule-based intent and complexity detection (keywords), with the raw query used directly as the search term |
 | `browse_retrieve` (topic / experience) | Fetches CanonicalQuestions by the filters and `visible_filter`, sorts them by `heat`, then adjusts by relevance to the query; the experience intent fetches experience-post body chunks | — |
 | `compose_list` | The LLM groups the top 30 questions by subtopic, and attaches to each question its occurrence count, companies, links, and the review status of its source answer | **Skips the LLM** and outputs a table directly |
 | `hybrid_retrieve` (solve) | Runs FTS5 BM25 and vector retrieval in parallel, takes the top 50 from each, and fuses them with RRF (k=60); results include similar questions, source answers, and related experience-post chunks | If vector retrieval fails, uses BM25 only |
 | `rerank` | A cross-encoder scores the top 30 and keeps the top 6, at most 3 paragraphs of one post (otherwise one long article whose every paragraph matches fills the context). Source answers that the reviewer judged "incorrect" are down-weighted, and the review comments are attached in the context | Skip reranking |
 | `grade` | The local LLM judges whether the retrieved content covers the question, and whether the same question was found | Treat it as "enough" |
 | `rewrite` | When the context is not enough, rewrites the search terms and retrieves again, **at most 2 rounds** | — |
-| `generate` | Streams the output. Answer structure, in order: understanding the question, the approach, code or key points, complexity and trade-offs, common follow-up questions, and sources. Content backed by sources carries `[Q123]` / `[D45]` citations; parts without source support go under the "模型补充" (Model supplement) heading | Stall detection (Section 7.5): if the gateway stalls, fall back to the local model; if everything fails, show only the retrieved questions and source answers |
+| `plan` (complex) | The `planner` splits the question into 2 to 4 subqueries, each with a goal, a retrieval path, English search terms, dependencies, and success criteria, plus an outline of the answer (Section 5.4.1) | The simple path (one retrieval with `grade` / `rewrite`) |
+| `subquery` (complex, one branch per subquery) | Retrieves by the subquery's path, reranks against its goal, keeps 4 items, checks its criteria (code first, then one `grader` call for `covers` criteria); an unmet subquery is retried once with new search terms | Criteria the code checks still decide; a `covers` criterion counts as met |
+| `check_plan` / `replan` (complex) | All met, or the budget spent: go on to `generate`. Otherwise the planner revises the plan with each subquery's outcome; met subqueries are reused, only changed ones run again; **at most 1 replan** | Generate with what was found |
+| `generate` | Streams the output. Answer structure, in order: understanding the question, the approach, code or key points, complexity and trade-offs, common follow-up questions, and sources. For a planned question, the answer follows the plan's outline, and goals left unmet are stated as such and answered under "模型补充". Content backed by sources carries `[Q123]` / `[D45]` citations; parts without source support go under the "模型补充" (Model supplement) heading | Stall detection (Section 7.5): if the gateway stalls, fall back to the local model; if everything fails, show only the retrieved questions and source answers |
 | `verify` | Programmatic check: every cited ID is in the context and passes the `can_read` re-check; invalid citations are removed and logged | — |
 | `log` | Writes the full trace: user, rewrite result, candidate IDs and scores, chunks that entered the context, model, per-stage timings, answer, citations | A logging failure does not affect the response |
 | `review` (async) | After the answer is returned, it is placed in the review queue, and the reviewer checks its correctness; the result is pushed to the UI (Section 7.6) | When the quota is used up or the review fails, the UI shows "未评审" (Not reviewed) |
 
 Multi-turn conversations: the LangGraph checkpointer stores the history with `thread_id = <user_id>:<UI session ID>`, and the `understand` node uses it to rewrite follow-up questions (for example "那用 Java 怎么写？" (So how would I write it in Java?)).
 
-**Why not a fully free-form ReAct agent**: section 5.7 of the reference document warns that the latency, cost, and behavior of agentic RAG are hard to control, and local models are not reliable at multi-step tool calling. This design is a **constrained agent**: the LLM does the routing, judges sufficiency, and decides whether to retrieve again, but the flow, the number of steps, and the timeouts are fixed by the graph, and every decision point can be tested on its own (Section 8).
+**Why not a fully free-form ReAct agent**: section 5.7 of the reference document warns that the latency, cost, and behavior of agentic RAG are hard to control, and local models are not reliable at multi-step tool calling. This design is a **constrained agent**: the LLM does the routing, plans complex questions, judges sufficiency, and decides whether to retrieve again or replan, but the flow, the number of subqueries, retries and replans, and the timeouts are fixed by the graph, and every decision point can be tested on its own (Section 8).
+
+### 5.4.1 Planner for complex questions
+
+Some questions need several pieces of material that one retrieval does not bring together:
+- two things compared ("Kafka 和 RabbitMQ 有什么区别？各自适合什么场景？");
+- several asks in one message;
+- a design question that names required aspects ("设计一个短链服务，包括容量估算和高可用");
+- a chain where the second step depends on the first ("Meta E5 面经里最常考的系统设计题，以及怎么答").
+
+For these, the `planner` role splits the question into subqueries, each with success criteria. The graph runs and checks them, and asks the planner to plan again when the checks fail.
+
+**When to plan.** `understand` reports `complexity` (`simple` | `complex`) and a one-line reason. Simple questions take the existing path unchanged, with no extra model call. A rule check backs up the router and decides on its own when the router fails. It looks for several question marks, enumerations and comparisons (分别、以及、并且、对比、"…和…的区别"、vs、compare、"and how"), or a design question naming two or more aspects. Topic and experience requests can be complex too ("Go 的并发和 GC 分别常考什么").
+
+**The plan** (structured output):
+
+```python
+class Criterion(BaseModel):
+    kind: Literal["min_items", "has_kind", "mentions", "covers"]
+    value: str                  # min_items: "2"; has_kind: "question" | "experience"; mentions: a term; covers: a statement
+
+class SubQuery(BaseModel):
+    id: str                     # "s1", "s2", ...
+    goal: str                   # what this step must find, in one sentence
+    intent: Literal["topic", "solve", "experience"]   # which retrieval path it uses
+    search_queries: list[str]   # 1 to 3, in English
+    filters: dict = {}          # category, tags, company
+    criteria: list[Criterion]   # 1 to 3, at least one of them checked by code
+    depends_on: list[str] = []  # runs after these; "{s1}" in its queries becomes the titles of s1's top items
+
+class Plan(BaseModel):
+    subqueries: list[SubQuery]  # 2 to max_subqueries
+    outline: list[str]          # sections of the final answer, each naming the subqueries it uses
+```
+
+**Success criteria** must be checkable, so there are four kinds. The first three are checked by code:
+
+| Kind | Met when | Example value |
+|---|---|---|
+| `min_items` | at least n of the subquery's items remain after reranking, each above the relevance threshold | `2` |
+| `has_kind` | at least one item is a bank question (`question`) or a paragraph of an experience post (`experience`) | `experience` |
+| `mentions` | an item's text contains the term, or one of its taxonomy aliases | `Meta`, `consistent hashing` |
+| `covers` | the `grader` confirms that the items support the statement, and names the labels that do | "explains when to choose Kafka over RabbitMQ" |
+
+A plan is rejected, and the simple path is used instead, when:
+- it has fewer than 2 or more than `max_subqueries` subqueries;
+- a subquery has no criteria, or only `covers` criteria;
+- its dependencies form a cycle;
+- its search terms are not in English.
+
+**Running the plan.**
+- Subqueries without dependencies run in parallel, one LangGraph `Send` branch each; dependent ones run in a second wave, after their inputs.
+- Each subquery uses the retrieval path of its intent: hybrid retrieval for `solve` and `experience`, the heat-sorted browse for `topic`. It reranks with its own goal as the query and keeps `items_per_subquery` items.
+- Its criteria are checked: code first, then all its `covers` criteria in one `grader` call. The result is `met`, or `unmet` with the reason for each failed criterion.
+- An unmet subquery gets one retry: the grader proposes new search terms, as in `rewrite`, and the subquery runs again.
+
+**Replanning.** When subqueries are still unmet after their retry, `check_plan` gives the planner the question, the current plan, and each subquery's outcome: which criteria were met, why the others were not, and the titles that were found. The planner returns a revised plan:
+- **met subqueries** are kept, and their results are reused, not run again;
+- **unmet subqueries** are changed: broadened, split differently, or stripped of the filter that found nothing (no posts from that company → the general question);
+- **goals with no material** can be marked `no_source`; the answer then covers them from the model's own knowledge, under "模型补充".
+
+Only the changed subqueries run. Replanning happens at most `max_replans` times (default 1). A revised plan that changes nothing for its unmet subqueries ends the planning instead of repeating it.
+
+**Stopping.** The planning phase ends when every subquery is met, when replanning is used up, or when the budget is spent: `plan_budget_s` for retrieval and checks, and `max_plan_calls` for planner, grader and rewrite calls together. It then goes on to generate with what it has.
+
+**The answer.** The context is the union of the subqueries' items, deduplicated by label, at most `context_max`, grouped by subquery. The prompt includes the outline, so the answer follows its sections. A goal that stayed unmet is stated as such ("没有找到关于……的来源") and answered under "模型补充". If every subquery is a `topic`, the composer writes the list; otherwise the generator writes the answer. Citation verification and the asynchronous review work as on the simple path.
+
+**On failure or stall.**
+- The planner fails, stalls, or returns a plan that is rejected: the simple path (one retrieval with the `grade` / `rewrite` loop).
+- A `grader` check fails: the criteria checked by code still decide; a `covers` criterion counts as met, just as `grade` treats a failure as "enough".
+- Replanning fails: generate with the current results.
+
+**Visibility.** The UI shows the plan as status lines ("拆成 3 个子问题：……", "子问题 2 未达标：没有找到 Meta 的面经，重新规划"). The trace in `query_logs` records the plan, each subquery's search terms, items and criterion results, and each replan.
+
+The simple path is the one-subquery case of the same mechanism: its only criterion is "the context covers the question", checked by `grade`, and `rewrite` is its retry.
+
+**Settings** (`[planner]` in `settings.toml`): `max_subqueries = 4`, `items_per_subquery = 4`, `context_max = 12`, `subquery_retries = 1`, `max_replans = 1`, `plan_budget_s = 120`, `max_plan_calls = 10`.
 
 ### 5.5 Conventions for citations and "模型补充" (Model supplement)
 
@@ -588,6 +673,7 @@ Each `ingest` run writes one row to `ingest_runs`. The `report` node and the UI'
 | Sampled quality check | Each run randomly samples 20 new questions and asks Claude to judge "is this a real interview question, and are the tags right" | Precision < 0.8 |
 | Reviews | Fraction of source answers and query answers judged "incorrect"; unreviewed backlog; daily quota usage | Query answer error rate > 20% over 7 days; quota used up 3 days in a row |
 | Queries | Zero-result rate, low-score rate, fraction where `grade` judged the context insufficient, degradation count, p50/p95 latency per stage, thumbs-up / thumbs-down | Thumbs-down rate > 30% over 7 days; p95 over budget |
+| Planning | Share of questions planned, subqueries per plan, replan rate, share of goals left unmet, rejected plans, extra latency of the planning phase | Unmet goals > 30% over 7 days; rejected plans > 10% |
 | Knowledge gaps | Frequent zero-result or low-confidence queries | Weekly summary suggesting new data sources |
 
 Alerts go through this project's `sde_rag.notify`. The channels are configurable (`log`; `desktop` via `notify-send`; `telegram` via the Bot API; several can be selected at once, and the default is log only). `alert(key, ...)` alerts only once for the same problem and sends a daily reminder while it persists; `resolve(key, ...)` notifies once on recovery; the alert state is stored in the database.
@@ -699,7 +785,8 @@ Each role has a fixed golden set (`evals/agent/<role>.jsonl`), and the threshold
 | `extractor` (local) | 20 fixed interview experience posts and non-experience posts (including Chinese ones), with the questions labeled by hand | Valid structured output rate ≥ 95%; question recall ≥ 0.8; fabrication rate ≤ 10%; accuracy of the "is this interview content" judgment ≥ 0.9 |
 | `tagger` (local) | 60 labeled questions | Category accuracy ≥ 0.85; tag F1 ≥ 0.7; tags outside the taxonomy ≤ 10% |
 | `router` (local) | 40 queries in Chinese and English | Intent accuracy ≥ 0.9; filter F1 ≥ 0.8; the English search terms generated for Chinese queries contain the key terms |
-| `grader` (local) | 30 (query, context, sufficient or not) triples | Accuracy ≥ 0.85 |
+| `grader` (local) | 30 (query, context, sufficient or not) triples, plus 30 (items, statement, supported or not) criterion checks | Accuracy ≥ 0.85 for each |
+| `planner` (local, plus the fallback) | 30 complex and 15 simple questions in Chinese and English; each complex one is labeled with the aspects an answer needs; 10 replanning cases with a planted unmet subquery | Complexity judged right ≥ 0.85, and simple questions left unplanned ≥ 0.9; labeled aspects covered by a subquery ≥ 0.8; valid plans (schema, a code-checked criterion in every subquery, no cycles) ≥ 0.95; the revised plan changes the unmet subquery ≥ 0.8 |
 | `generator` (gateway, plus the local fallback model) | 15 fixed contexts | Citation validity rate ≥ 0.95; correctly labels "no sources" when the context is empty ≥ 0.9; correct answer language ≥ 0.95; faithfulness ≥ 0.8 |
 | **`reviewer`** (Claude Sonnet 5.5) | 30 answers: half correct, half with **deliberately planted errors** (wrong complexity, off-by-one errors, wrong claims about the GIL or CAP, outdated React lifecycle methods, a key bottleneck missing from a system design, and so on) | Error detection rate ≥ 0.85; false positive rate (judging a correct answer as wrong) ≤ 0.15; accurately pinpoints the planted error ≥ 0.75; valid output format 100% |
 | `judge` (faithfulness judging, Claude) | 20 human-labeled items | Agreement with human labels ≥ 0.8 |
@@ -795,7 +882,7 @@ SDE-Interview-RAG/
     cli.py                # sde-rag ingest | ui | eval | agent-check | agents show | doctor | replay | review | stats | backup | reconcile | watchdog-ui | install-systemd
   evals/
     retrieval.jsonl
-    agent/{extractor,tagger,router,grader,generator,reviewer,judge,e2e}.jsonl
+    agent/{extractor,tagger,router,planner,grader,generator,reviewer,judge,e2e}.jsonl
   tests/
     unit/                 # run by default, everything mocked
     agent/                # -m agent, calls the real models
@@ -819,7 +906,7 @@ The project has its own `.env.example` that lists the environment variables used
 | Phase | Contents | Acceptance criteria |
 |---|---|---|
 | M1 Skeleton and minimal loop | Database and migrations; **`langgraph.json` and the runtime conventions for the three graphs, plus graph-loading tests**; **role and agent configuration (layered loading, capability validation, `agents show`, `doctor`)**; **identity and permission interfaces (default implementations)**; three connectors (GitHub question banks, HN, dev.to), **including `seen_items` incremental deduplication and conditional requests**; cleaning and persistence; rule-based parsing; tagging; embedding; FTS5 plus vectors plus **vector snapshots and the startup consistency check**; RRF; the topic and solve paths of the `query` graph (without reranking or multi-round rewriting at first); **stall detection and model fallback for streaming generation**; the Gradio Q&A tab; unit tests | Asking "Python 常见面试题" (common Python interview questions) and one specific question in the UI returns answers with citations; a restart does not re-embed anything; when the pipeline runs twice in a row, the second run has 0 repeated downloads |
-| M2 Experience posts, reliability, and reviews | LeetCode Discuss, Reddit, Medium, and 1Point3Acres connectors; LLM extraction and anti-fabrication; deduplication, merging, and heat; reranking; the `grade` / `rewrite` loop; state machine, retries, dead letters, replay; **full stall detection and the watchdog**; **the reviewer (for query answers and source answers)**; agent capability tests (including the reviewer) and the preflight gate; systemd timers | Scheduled crawls run stably for 3 days; `pytest -m agent` passes completely; when a model is deliberately made to hang, the system detects it, degrades, and alerts |
+| M2 Experience posts, reliability, and reviews | LeetCode Discuss, Reddit, Medium, and 1Point3Acres connectors; LLM extraction and anti-fabrication; deduplication, merging, and heat; reranking; the `grade` / `rewrite` loop; **the planner for complex questions (subqueries with success criteria, replanning)**; state machine, retries, dead letters, replay; **full stall detection and the watchdog**; **the reviewer (for query answers and source answers)**; agent capability tests (including the reviewer and the planner) and the preflight gate; systemd timers | Scheduled crawls run stably for 3 days; `pytest -m agent` passes completely; when a model is deliberately made to hang, the system detects it, degrades, and alerts; a complex question is split into subqueries, and an unmet criterion leads to a replan (visible in the trace) |
 | M3 Monitoring and evaluation | Monitoring tab, alert rules; evaluation sets and the `evaluate` graph; correctness and faithfulness evaluation and calibration; regression gate; blue-green index switching; browse and evaluation tabs | An evaluation report is produced every night; a deliberately introduced regression (for example, switching to a poor embedding model) is blocked by the gate |
 | Later (optional) | Offline reference answer generation; sandbox verification of code for algorithm questions; general blog discovery; embedding and reranking on a GPU; enabling login and permissions | — |
 
