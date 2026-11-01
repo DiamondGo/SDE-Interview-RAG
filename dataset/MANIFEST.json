@@ -33,5 +33,12 @@
   "asset_sha256": "0bf85f3bf53d05fdb3b2f43d74aac4945c50d44f6e649ec759fc7c611117422c",
   "asset_bytes": 45677958,
   "url": "https://github.com/DiamondGo/SDE-Interview-RAG/releases/download/dataset-20261031-231926/rag.db.gz"
+ },
+ "raw_archive": {
+  "file": "raw.tar.gz",
+  "sha256": "131fb90d314ae1a93980fc23c7ea065a01407bfdaa8263e0b7b034bbc3a29c71",
+  "bytes": 2863490,
+  "release": "dataset-20261031-231926",
+  "url": "https://github.com/DiamondGo/SDE-Interview-RAG/releases/download/dataset-20261031-231926/raw.tar.gz"
  }
 }

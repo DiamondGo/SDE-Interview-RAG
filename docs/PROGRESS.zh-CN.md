@@ -21,8 +21,9 @@
 - 混合检索（BM25 + 向量，RRF 融合）；查询图支持列出某方向的常见题和带引用的回答，校验引用，模型失败时给出降级回答。
 - 抓取图：运行标识、数据库锁（持有者进程不存在时可接管）、心跳、断点续跑。
 - 最小的评测图（检索自检）、带 `/health` 的 Gradio 网页界面、命令行。
-- 公开数据集导出（`sde-rag publish-data`），不含本机使用数据：原始文件用 Git LFS，数据库作为 GitHub release 附件
-  （只保留最新几个），`sde-rag import-data` 下载并校验。
+- 公开数据集导出（`sde-rag publish-data`），不含本机使用数据：`rag.db.gz` 和 `raw.tar.gz` 都作为数据集 release 附件
+  （只保留最新几个）。`sde-rag import-data` 下载并校验数据库；加 `--with-raw` 同时导入对应的原始文件包。
+  Git 只保留清单和说明，不存放 LFS 数据。
 - 测试：不需要网络的单元测试；在 `langgraph dev` 里运行查询图的集成测试。
 
 第一次真实抓取（2026-10-31）：486 篇文档（GitHub 文件 314 个、dev.to 文章 150 篇、Hacker News 讨论 23 个），

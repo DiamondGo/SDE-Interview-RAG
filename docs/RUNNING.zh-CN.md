@@ -48,7 +48,6 @@
 
 | 项目 | 用途 | 没有时 |
 |---|---|---|
-| [Git LFS](https://git-lfs.com/) | 拉取公开数据集的原始文件（`dataset/raw/`） | 从空数据库开始抓取 |
 | Google Chrome | 一亩三分地连接器（Playwright 用本机安装的 Chrome，不需要 `playwright install`） | 跳过这个来源 |
 | 登录过一亩三分地的专用 Chrome profile | 同上；手动登录时要带 `--password-store=basic` 启动，systemd 任务才能读到 cookie | 跳过这个来源 |
 | `GITHUB_TOKEN` 或已登录的 `gh` | GitHub API 的速率上限（没有 token 时每小时 60 次） | 题库仓库的抓取会很慢或失败 |
@@ -61,13 +60,18 @@
 
 ```bash
 git clone https://github.com/DiamondGo/SDE-Interview-RAG.git && cd SDE-Interview-RAG
-git lfs pull                                      # 可选：公开数据集的原始文件
 uv sync                                           # 依赖，包括开发依赖（langgraph-cli、pytest）
 cp config/agents.example.toml config/agents.toml  # 模型配置：改成你的接口和模型名
 cp .env.example .env                              # agents.toml 引用的接口地址和密钥
 uv run sde-rag import-data                        # 可选：下载并校验公开数据库，不必从头抓取
 uv run sde-rag doctor                             # 配置问题；每个后端是否有响应
 ```
+
+所有数据集文件都从 `dataset/MANIFEST.json` 指定的数据集 release 获取，不使用 Git LFS。
+默认导入只下载 `rag.db.gz`，足够进行检索问答。若要重新处理历史文档，改用
+`uv run sde-rag import-data --with-raw`：它还会从同一个 release 下载并校验 `raw.tar.gz`，
+确认压缩包与数据库对应后，安全解包到 `data/raw/`。
+导入不会合并已有数据库；`--force` 会替换它。替换前先停止网页界面和抓取任务。
 
 `.env` 里的变量（名字由 `agents.toml` 里的 `*_env` 字段决定）：
 
@@ -175,7 +179,7 @@ systemctl --user restart sde-ui.service          # 改了代码或配置后让�
 | 一亩三分地要求登录或验证 | 连接器停下并告警，不会尝试登录。用同样的启动参数（`--password-store=basic`）打开这个 profile，手动登录后关闭 Chrome |
 | 备份 | 每天 03:30 自动备份到 `data/backups/rag-<时间>.db.gz`（保留 7 份）；手动：`uv run sde-rag backup` |
 | 从备份恢复 | 先停掉界面和定时任务（`systemctl --user stop sde-ui.service sde-ingest.timer`），删除 `data/rag.db-wal` 和 `data/rag.db-shm`，用 `gunzip -c data/backups/rag-<时间>.db.gz > data/rag.db` 恢复，再启动。向量快照和数据库对不上时会从数据库重建，不需要重新嵌入 |
-| 发布数据集 | `uv run sde-rag publish-data`（需要已登录的 `gh`），然后提交 `dataset/` |
+| 发布数据集 | `uv run sde-rag publish-data`（需要已登录的 `gh`）：一起上传 `rag.db.gz` 和 `raw.tar.gz`，然后只提交 `dataset/` 中的元数据 |
 
 ## 数据目录
 

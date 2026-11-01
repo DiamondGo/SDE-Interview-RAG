@@ -43,8 +43,8 @@ Main properties:
 
 - **Incremental crawling**: a second run downloads nothing that did not change (version checks, conditional
   requests, content hashes, cross-source link detection).
-- **Everything persisted**: raw downloads, cleaned text, questions, tags, the FTS index and the vectors live in
-  SQLite; a restart never re-embeds.
+- **Everything persisted**: raw downloads live in `data/raw/`; cleaned text, questions, tags, the FTS index and
+  vectors live in SQLite. A restart never re-embeds.
 - **Configurable agents**: each role (router, tagger, generator, reviewer, ...) is mapped to a backend in
   configuration: any OpenAI-compatible endpoint or a CLI agent (`claude`, `agy`, Cursor `agent`), with
   fallbacks.
@@ -55,11 +55,10 @@ Main properties:
 
 ## Setup
 
-Requires [uv](https://docs.astral.sh/uv/) and, to get the published raw files, [Git LFS](https://git-lfs.com/).
+Requires [uv](https://docs.astral.sh/uv/). All dataset files come from dataset releases; Git LFS is not needed.
 
 ```bash
 git clone https://github.com/DiamondGo/SDE-Interview-RAG.git && cd SDE-Interview-RAG
-git lfs pull                                      # the published raw files (dataset/raw/)
 uv sync
 cp config/agents.example.toml config/agents.toml  # model configuration: edit for your endpoints
 cp .env.example .env                              # endpoint URLs and keys referenced by agents.toml
@@ -69,6 +68,11 @@ uv run sde-rag doctor                             # configuration problems, and 
 
 The first run downloads the embedding model configured in `agents.toml` (by default
 `intfloat/multilingual-e5-large`, about 2.2 GB) into `data/models/`.
+
+For reprocessing historical documents, use `uv run sde-rag import-data --with-raw` instead of the import command
+above. The default downloads only the database, which is sufficient for queries. Import refuses to overwrite an
+existing database unless `--force` is given; that replaces it rather than merging local data. Stop the UI and
+ingest jobs before replacing a database.
 
 ## Configuration
 
@@ -160,17 +164,26 @@ the calls per day.
 `data/` is the local working directory and is never committed: the working database (which also holds local
 usage records), raw downloads, the vector snapshot, LangGraph checkpoints, logs and the model cache.
 
-The published dataset has two parts. The raw files are in `dataset/raw/`, stored with Git LFS; they are named by
-content hash, so each file is stored once. The database (about 80 MB) is attached to a GitHub
-[release](https://github.com/DiamondGo/SDE-Interview-RAG/releases) as `rag.db.gz`, not committed: every version
-of a file in Git LFS stays on the server for good, while old releases can be deleted. `dataset/MANIFEST.json` names
-the release and the checksums; `sde-rag import-data` downloads the database and verifies it.
+All published dataset files are attachments to the same GitHub dataset
+[release](https://github.com/DiamondGo/SDE-Interview-RAG/releases), not Git or Git LFS files:
+
+- `rag.db.gz`: the database, including cleaned text, questions, tags, source links, search indexes and embeddings.
+- `raw.tar.gz`: the corresponding public raw HTML / Markdown, containing content-addressed `raw/<source>/*.gz` files.
+
+Only `dataset/MANIFEST.json` and the notices are committed. The manifest records the release, download URLs and
+SHA-256 checksums. `sde-rag import-data` downloads and verifies the database; `--with-raw` also downloads and
+safely extracts the raw archive into `data/raw/`. Existing document embeddings are reused, not recomputed.
 
 `uv run sde-rag publish-data` regenerates the dataset from the working database, without local usage records and
 run logs and without sources marked `publish = false`. It uploads a new `dataset-*` release with the GitHub CLI
-(`gh`, signed in) and deletes all but the newest `[dataset] release_keep` of them; then commit `dataset/`.
+(`gh`, signed in), uploading both attachments together, and deletes all but the newest `[dataset] release_keep`
+of them; then commit the metadata in `dataset/`.
 `--no-upload` only writes the files locally. The collected content belongs to its authors; see
 [dataset/NOTICE.md](dataset/NOTICE.md).
+
+The old LFS files and tracking rule have been removed from the current checkout. This does not purge historical
+objects from GitHub's LFS storage; that requires separate GitHub-side cleanup. No Git history is rewritten by
+this migration.
 
 ## Tests
 

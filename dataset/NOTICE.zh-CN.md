@@ -1,7 +1,8 @@
 # 数据集说明
 
-这个目录包含从公开来源收集的面试题、答案和面经帖子（`raw/`）。由它们构建的数据库（清洗后的正文、标签、检索索引、向量）
-作为附件放在 `MANIFEST.json` 指明的 GitHub release 里，`sde-rag import-data` 会下载并校验它。
+所有数据文件都在 `MANIFEST.json` 指明的数据集 GitHub release 附件中，不存放在 Git 或 Git LFS：
+`rag.db.gz` 包含清洗后的正文、题目、标签、检索索引和向量；`raw.tar.gz` 包含对应的公开来源原始面试题、答案和面经帖子。
+`sde-rag import-data` 下载并校验数据库；加 `--with-raw` 才会同时下载原始文件，供重新处理使用。
 发布这些数据，是为了让这个 RAG 系统不必重新抓取全部内容就能使用。
 
 **内容版权归原作者所有。** 每篇文档都保留了来源链接（`documents.url`），每道题都关联到它出现的文档

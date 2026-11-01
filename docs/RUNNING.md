@@ -51,7 +51,6 @@ role, check that role again (see "Checks" below).
 
 | Item | Used for | Without it |
 |---|---|---|
-| [Git LFS](https://git-lfs.com/) | The raw files of the published dataset (`dataset/raw/`) | Start crawling from an empty database |
 | Google Chrome | The 1Point3Acres connector (Playwright drives the installed Chrome; no `playwright install` needed) | The source is skipped |
 | A dedicated Chrome profile logged in to 1Point3Acres | The same; log in with Chrome started with `--password-store=basic`, so that systemd jobs can read the cookies | The source is skipped |
 | `GITHUB_TOKEN`, or a signed-in `gh` | The GitHub API rate limit (60 requests an hour without a token) | Crawling the question repositories is slow or fails |
@@ -64,13 +63,18 @@ role, check that role again (see "Checks" below).
 
 ```bash
 git clone https://github.com/DiamondGo/SDE-Interview-RAG.git && cd SDE-Interview-RAG
-git lfs pull                                      # optional: raw files of the published dataset
 uv sync                                           # dependencies, including the dev group (langgraph-cli, pytest)
 cp config/agents.example.toml config/agents.toml  # model configuration: set your endpoints and model names
 cp .env.example .env                              # endpoint URLs and keys referenced by agents.toml
 uv run sde-rag import-data                        # optional: download and verify the published database
 uv run sde-rag doctor                             # configuration problems; does every backend answer?
 ```
+
+All dataset files come from the dataset release named in `dataset/MANIFEST.json`, not Git LFS.
+The default import downloads only `rag.db.gz`, sufficient for queries. To reprocess historical documents, use
+`uv run sde-rag import-data --with-raw` instead: it also downloads and verifies `raw.tar.gz` from the same release,
+checks that the archive matches the database, and extracts it into `data/raw/`.
+Existing databases are never merged: `--force` replaces them. Stop the UI and ingest jobs before replacement.
 
 The variables in `.env` (their names come from the `*_env` fields in `agents.toml`):
 
@@ -183,7 +187,7 @@ source; that is not a failure.
 | 1Point3Acres asks for a login or a verification | The connector stops and alerts; it never tries to log in. Open the profile with the same flags (`--password-store=basic`), log in by hand, and close Chrome |
 | Backups | Every day at 03:30 to `data/backups/rag-<time>.db.gz` (7 kept); by hand: `uv run sde-rag backup` |
 | Restoring a backup | Stop the UI and the timers (`systemctl --user stop sde-ui.service sde-ingest.timer`), delete `data/rag.db-wal` and `data/rag.db-shm`, restore with `gunzip -c data/backups/rag-<time>.db.gz > data/rag.db`, and start them again. The vector snapshot no longer matches the database, so it is rebuilt from the database; nothing is embedded again |
-| Publishing the dataset | `uv run sde-rag publish-data` (needs a signed-in `gh`), then commit `dataset/` |
+| Publishing the dataset | `uv run sde-rag publish-data` (needs a signed-in `gh`): uploads `rag.db.gz` and `raw.tar.gz` together; then commit only the metadata in `dataset/` |
 
 ## The data directory
 

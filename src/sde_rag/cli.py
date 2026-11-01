@@ -235,7 +235,7 @@ def cmd_publish_data(args) -> int:
     print(json.dumps(out, ensure_ascii=False, indent=1))
     if out["database"]["release"]:
         print(f"\nUploaded release {out['database']['release']}. Next: git add dataset && git commit -m "
-              f"'Update dataset' && git push  (MANIFEST.json names the release; raw files use Git LFS)")
+              f"'Update dataset' && git push  (all data files are release assets; only metadata goes in Git)")
     else:
         print("\nLocal only: MANIFEST.json names no release. Do not commit it; run without --no-upload to publish.")
     return 0
@@ -243,7 +243,7 @@ def cmd_publish_data(args) -> int:
 
 def cmd_import_data(args) -> int:
     from sde_rag.pipeline.dataset import import_data
-    print(json.dumps(import_data(force=args.force), ensure_ascii=False, indent=1))
+    print(json.dumps(import_data(force=args.force, with_raw=args.with_raw), ensure_ascii=False, indent=1))
     return 0
 
 
@@ -349,11 +349,12 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("doctor", help="check configuration and that every backend answers").set_defaults(fn=cmd_doctor)
     sub.add_parser("stats", help="counts of documents, questions and chunks").set_defaults(fn=cmd_stats)
     s = sub.add_parser("publish-data", help="publish the dataset (no local usage data, no unpublishable sources): "
-                       "the database to a GitHub release, raw files to dataset/")
+                       "the database and raw archive to a GitHub release")
     s.add_argument("--no-upload", action="store_true", help="only write dataset/ locally")
     s.set_defaults(fn=cmd_publish_data)
     s = sub.add_parser("import-data", help="start data/ from the published dataset (downloads the database)")
     s.add_argument("--force", action="store_true", help="replace an existing working database")
+    s.add_argument("--with-raw", action="store_true", help="also download and verify the raw archive for reprocessing")
     s.set_defaults(fn=cmd_import_data)
     s = sub.add_parser("replay", help="send failed or dead-letter documents through their stage again")
     s.add_argument("--stage", choices=["clean", "parse", "index", "extract"], help="default: every stage")

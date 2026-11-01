@@ -1,9 +1,10 @@
 # Dataset notice
 
-This directory holds interview questions, answers and interview-experience posts collected from public sources
-(`raw/`). The database built from them (cleaned text, tags, search index, embeddings) is attached to the GitHub
-release named in `MANIFEST.json`; `sde-rag import-data` downloads and verifies it. Both are published so that the
-RAG system can be used without crawling everything again.
+All dataset files are attachments to the GitHub dataset release named in `MANIFEST.json`, not files in Git or
+Git LFS: `rag.db.gz` contains cleaned text, questions, tags, search indexes and embeddings; `raw.tar.gz` contains
+the corresponding raw interview questions, answers and interview-experience posts collected from public sources.
+`sde-rag import-data` downloads and verifies the database; add `--with-raw` to also download the raw files for
+reprocessing. Both are published so that the RAG system can be used without crawling everything again.
 
 **The content belongs to its authors.** Every document keeps its source URL (`documents.url`), and every
 question links to the documents it was found in (`question_mentions`). Licenses differ by source: question
