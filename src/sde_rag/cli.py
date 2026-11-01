@@ -110,6 +110,7 @@ def cmd_eval(args) -> int:
 
 
 def cmd_agents(args) -> int:
+    from sde_rag import agent_checks
     from sde_rag.agents import get_registry
     reg = get_registry()
     _print_table(reg.describe(), ["role", "order", "backend", "type", "model", "base_url", "thinking", "stream",
@@ -120,7 +121,46 @@ def cmd_agents(args) -> int:
         for role, items in sorted(probs.items()):
             for level, msg in items:
                 print(f"  {level:<7} {role}: {msg}")
+    print("\ncapability checks (for the current configuration of each role):")
+    for role in agent_checks.ROLES:
+        if role != "e2e" and role not in reg.roles:
+            continue
+        rec = agent_checks.latest(role)
+        state = (f"{'passed' if rec['passed'] else 'FAILED'} ({rec['level']}, {rec['created_at']})" if rec
+                 else "never checked: `sde-rag agent-check --roles " + role + "`")
+        loose = agent_checks.relaxed(role)
+        extra = ("; relaxed locally: " + ", ".join(f"{k} {v[0]} -> {v[1]}" for k, v in loose.items())) if loose else ""
+        print(f"  {role:<10} {state}{extra}")
     return 0
+
+
+def cmd_agent_check(args) -> int:
+    from sde_rag import agent_checks
+    roles = args.roles.split(",") if args.roles else list(agent_checks.ROLES)
+    failed = 0
+    for role in roles:
+        if args.max_age_hours is not None:
+            rec = agent_checks.latest(role)
+            if rec and rec["level"] == args.level and (datetime.now().astimezone() - datetime.fromisoformat(
+                    rec["created_at"])).total_seconds() < args.max_age_hours * 3600:
+                print(f"{role}: checked at {rec['created_at']}, skipped")
+                continue
+        out = agent_checks.run(role, args.level)
+        if out.get("skipped"):
+            print(f"{role}: skipped ({out['skipped']})")
+            continue
+        failed += not out["passed"]
+        print(f"\n{role} ({args.level}, {out['cases']} cases, {out['duration_s']}s): "
+              f"{'PASSED' if out['passed'] else 'FAILED'}")
+        for c in out["checks"]:
+            mark = "ok " if c["ok"] else "BAD"
+            print(f"  {mark} {c['metric']:<22} {c['value']:<8} {c['op']} {c['threshold']}"
+                  + ("  (relaxed locally)" if c["relaxed"] else ""))
+        if out["failures"] and (args.verbose or not out["passed"]):
+            print("  cases that went wrong:")
+            for f in out["failures"][:args.show]:
+                print("   ", json.dumps(f, ensure_ascii=False)[:400])
+    return 1 if failed else 0
 
 
 def cmd_doctor(args) -> int:
@@ -154,7 +194,12 @@ def cmd_doctor(args) -> int:
         except Exception as e:
             failures += 1
             print(f"FAIL    backend {name:<14} {time.monotonic() - t0:5.1f}s  {type(e).__name__}: {str(e)[:200]}")
-    print("\nAgent capability tests (pytest -m agent) arrive in milestone 2.")
+    from sde_rag import agent_checks
+    unchecked = [r for r in agent_checks.ROLES if (r == "e2e" or r in reg.roles) and not
+                 (agent_checks.latest(r) or {}).get("passed")]
+    if unchecked:
+        print(f"\nRoles without a passing capability check for their current configuration: {', '.join(unchecked)}"
+              f"\n  run: uv run sde-rag agent-check --roles {','.join(unchecked)}")
     return 1 if failures else 0
 
 
@@ -294,6 +339,13 @@ def main(argv: list[str] | None = None) -> None:
     s = sub.add_parser("agents", help="show which backend serves each role")
     s.add_argument("action", choices=["show"], nargs="?", default="show")
     s.set_defaults(fn=cmd_agents)
+    s = sub.add_parser("agent-check", help="capability checks of the LLM roles against their golden sets")
+    s.add_argument("--roles", help="comma-separated (default: every checked role)")
+    s.add_argument("--level", choices=["quick", "full"], default="quick")
+    s.add_argument("--max-age-hours", type=float, help="skip roles checked at this level more recently")
+    s.add_argument("--show", type=int, default=5, help="cases that went wrong to print per role")
+    s.add_argument("-v", "--verbose", action="store_true", help="print cases that went wrong even when passing")
+    s.set_defaults(fn=cmd_agent_check)
     sub.add_parser("doctor", help="check configuration and that every backend answers").set_defaults(fn=cmd_doctor)
     sub.add_parser("stats", help="counts of documents, questions and chunks").set_defaults(fn=cmd_stats)
     s = sub.add_parser("publish-data", help="publish the dataset (no local usage data, no unpublishable sources): "

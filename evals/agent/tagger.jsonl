@@ -1,0 +1,52 @@
+{"question": "Find the length of the longest substring without repeating characters.", "category": "coding", "tags": ["string", "sliding-window"]}
+{"question": "What is the difference between a process and a thread?", "category": "cs_fundamentals", "tags": ["process-thread"]}
+{"question": "What is the GIL in Python and how does it affect multithreading?", "category": "language", "tags": ["python"]}
+{"question": "What does the useEffect hook do in React and when does it run?", "category": "framework", "tags": ["react"]}
+{"question": "Design a URL shortener like TinyURL.", "category": "system_design", "tags": ["url-shortener"]}
+{"question": "What is overfitting and how do you prevent it?", "category": "ai_ml", "tags": ["ml-fundamentals"]}
+{"question": "What is the difference between a Docker image and a container?", "category": "automation", "tags": ["docker"]}
+{"question": "Tell me about a time you had a conflict with a coworker.", "category": "behavioral", "tags": ["conflict"]}
+{"question": "Merge k sorted linked lists.", "category": "coding", "tags": ["linked-list", "heap"]}
+{"question": "Explain how a deadlock happens and how to prevent it.", "category": "cs_fundamentals", "tags": ["concurrency"]}
+{"question": "How do goroutines communicate with each other?", "category": "language", "tags": ["golang"]}
+{"question": "How does the Node.js event loop handle asynchronous I/O?", "category": "framework", "tags": ["nodejs"]}
+{"question": "Design a rate limiter for a public API.", "category": "system_design", "tags": ["rate-limiter"]}
+{"question": "Explain self-attention in the Transformer.", "category": "ai_ml", "tags": ["transformer"]}
+{"question": "What is a Kubernetes Deployment and how does it differ from a Pod?", "category": "automation", "tags": ["kubernetes"]}
+{"question": "Why do you want to work at our company?", "category": "behavioral", "tags": ["why-company"]}
+{"question": "Implement an LRU cache with O(1) get and put.", "category": "coding", "tags": ["design-data-structure", "hash-map", "linked-list"]}
+{"question": "What happens when you type a URL into the browser and press Enter?", "category": "cs_fundamentals", "tags": ["networking"]}
+{"question": "Explain the difference between == and === in JavaScript.", "category": "language", "tags": ["javascript"]}
+{"question": "What is dependency injection in Spring?", "category": "framework", "tags": ["spring"]}
+{"question": "Design the news feed of a social network.", "category": "system_design", "tags": ["news-feed"]}
+{"question": "How does retrieval-augmented generation reduce hallucinations?", "category": "ai_ml", "tags": ["rag", "llm"]}
+{"question": "How do you handle flaky tests in a Selenium suite?", "category": "automation", "tags": ["test-automation"]}
+{"question": "Describe a project that failed and what you learned.", "category": "behavioral", "tags": ["failure"]}
+{"question": "Count the number of islands in a 2D grid.", "category": "coding", "tags": ["graph", "bfs-dfs"]}
+{"question": "What is the difference between TCP and UDP?", "category": "cs_fundamentals", "tags": ["networking"]}
+{"question": "How does garbage collection work in the JVM?", "category": "language", "tags": ["java"]}
+{"question": "What is the difference between computed properties and watchers in Vue?", "category": "framework", "tags": ["vue"]}
+{"question": "Design a chat application like WhatsApp.", "category": "system_design", "tags": ["chat-system"]}
+{"question": "What is LoRA and why is it used for fine-tuning?", "category": "ai_ml", "tags": ["fine-tuning"]}
+{"question": "What is the difference between git merge and git rebase?", "category": "automation", "tags": ["git"]}
+{"question": "Tell me about a time you led a project without formal authority.", "category": "behavioral", "tags": ["leadership"]}
+{"question": "Find the minimum number of coins that make up a given amount.", "category": "coding", "tags": ["dynamic-programming"]}
+{"question": "How does a B-tree index speed up queries in a relational database?", "category": "cs_fundamentals", "tags": ["database", "indexing"]}
+{"question": "What is ownership and borrowing in Rust?", "category": "language", "tags": ["rust"]}
+{"question": "Explain middleware in Django.", "category": "framework", "tags": ["django"]}
+{"question": "How would you shard a database that has outgrown a single machine?", "category": "system_design", "tags": ["sharding"]}
+{"question": "Search for a target in a rotated sorted array.", "category": "coding", "tags": ["binary-search", "array"]}
+{"question": "Explain the four isolation levels of SQL transactions.", "category": "cs_fundamentals", "tags": ["database", "sql"]}
+{"question": "What is the difference between interface and type in TypeScript?", "category": "language", "tags": ["typescript"]}
+{"question": "What are Angular services and how are they injected?", "category": "framework", "tags": ["angular"]}
+{"question": "Explain the CAP theorem with an example.", "category": "system_design", "tags": ["consistency"]}
+{"question": "Return all permutations of a list of distinct integers.", "category": "coding", "tags": ["backtracking"]}
+{"question": "What is virtual memory and why is paging used?", "category": "cs_fundamentals", "tags": ["operating-system", "memory"]}
+{"question": "Python 中的装饰器是什么？怎么实现一个带参数的装饰器？", "category": "language", "tags": ["python"]}
+{"question": "Implement a trie with insert, search and startsWith.", "category": "coding", "tags": ["trie"]}
+{"question": "Explain SQL injection and how to prevent it.", "category": "cs_fundamentals", "tags": ["security", "sql"]}
+{"question": "Explain RAII in C++.", "category": "language", "tags": ["cpp"]}
+{"question": "给定一个二叉树，返回它的层序遍历结果。", "category": "coding", "tags": ["tree", "bfs-dfs"]}
+{"question": "Two Sum: return the indices of the two numbers that add up to a target.", "category": "coding", "tags": ["array", "hash-map"]}
+{"question": "How do you keep a Kubernetes cluster's secrets out of the Git repository?", "category": "automation", "tags": ["kubernetes", "git"]}
+{"question": "What would you do if your manager disagreed with your technical decision?", "category": "behavioral", "tags": ["conflict"]}

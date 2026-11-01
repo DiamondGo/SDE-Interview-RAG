@@ -45,6 +45,9 @@ pairs_per_question = 2
 judge_pairs_per_run = 600
 judge_batch = 10
 
+[gates]                                  # capability checks decide whether a role is used (DESIGN 8.4)
+enabled = true
+
 [planner]                                # complex questions (DESIGN 5.4.1)
 enabled = true
 max_subqueries = 4

@@ -1,10 +1,13 @@
 """Web UI (Gradio) for the query graph, plus a /health endpoint for the watchdog."""
 
+import logging
+import threading
+
 import gradio as gr
 import uvicorn
 from fastapi import FastAPI
 
-from sde_rag import db, review
+from sde_rag import agent_checks, db, review
 from sde_rag.auth import auth_provider
 from sde_rag.runner import QueryService, query_service
 from sde_rag.settings import section
@@ -100,12 +103,37 @@ def respond(message: str, history: list, thread_id: str | None, category: str, t
                    review_md(job_id))
 
 
+def banner_md() -> str:
+    """Shown while a role the answers depend on is below its capability thresholds (section 8.4)."""
+    notes = []
+    if not agent_checks.allowed("generator"):
+        notes.append("**生成模型没有通过能力测试，现在只显示检索到的题目和来源答案。** "
+                     "运行 `uv run sde-rag agent-check --roles generator` 查看原因。")
+    if not agent_checks.allowed("reviewer"):
+        notes.append("**评审员暂不可用**（没有通过能力测试），回答不会被评审。")
+    return "\n\n".join(notes)
+
+
+def check_roles_in_background() -> None:
+    """At start: the quick checks of the roles every answer uses, when this configuration has none recent."""
+    def run():
+        for role in ("router", "generator"):
+            try:
+                agent_checks.gate(role)
+            except Exception:
+                logging.getLogger("sde_rag.ui").exception("capability check of %s", role)
+    if agent_checks.gates_enabled():
+        threading.Thread(target=run, daemon=True, name="agent-checks").start()
+
+
 def build_ui() -> gr.Blocks:
     tax = taxonomy()
     choices = [("全部方向", "")] + [(f"{name} ({key})", key) for key, name in tax.categories.items()]
     with gr.Blocks(title="SDE Interview RAG") as demo:
         gr.Markdown("## 软件工程师面试助手\n问某个方向的常见面试题，或者问一道具体的题怎么解。答案会标出来源；"
                     "没有来源支持的内容放在“模型补充”里。")
+        banner = gr.Markdown("")
+        demo.load(banner_md, None, banner)
         thread = gr.State(None)
         job = gr.State(None)
         with gr.Row():
@@ -153,6 +181,7 @@ def create_app() -> FastAPI:
 
 def serve(host: str | None = None, port: int | None = None) -> None:
     cfg = section("ui")
+    check_roles_in_background()
     worker = review.ReviewWorker().start()
     try:
         uvicorn.run(create_app(), host=host or cfg.get("host", "127.0.0.1"), port=int(port or cfg.get("port", 7860)))

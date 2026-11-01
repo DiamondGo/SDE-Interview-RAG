@@ -23,7 +23,7 @@ from langgraph.runtime import Runtime
 from pydantic import BaseModel
 from typing_extensions import TypedDict
 
-from sde_rag import db, prompts, retrieval, review
+from sde_rag import agent_checks, db, prompts, retrieval, review
 from sde_rag.agents import AgentError, get_registry
 from sde_rag.auth import Principal, auth_provider, safe_can_read
 from sde_rag.graphs import planner
@@ -37,6 +37,7 @@ from sde_rag.text import detect_lang, truncate
 @dataclass
 class QueryContext:
     user_id: str = "local"
+    review: bool = True         # queue solve answers for the reviewer (the agent smoke test turns it off)
 
 
 class QueryInput(TypedDict, total=False):
@@ -157,6 +158,15 @@ def rule_understanding(question: str) -> Understanding:
                          standalone_question=question, search_queries=[question])
 
 
+def resolve_filters(u: Understanding, filters: dict) -> tuple[str | None, list[str]]:
+    """Filters the user set win; then the category the router's tags belong to (the index files questions by
+    the taxonomy, so "kubernetes" means automation even when the router guesses system design); then its guess."""
+    tax = taxonomy()
+    tags = list(dict.fromkeys(t for t in (tax.resolve(x) for x in (filters.get("tags") or u.tags)) if t))
+    guess = u.category if u.category in tax.categories else None
+    return filters.get("category") or tax.category_of(tags) or guess, tags
+
+
 def understand(state: QueryState) -> dict:
     q = state["question"]
     calls: list = []
@@ -174,10 +184,7 @@ def understand(state: QueryState) -> dict:
     if u.intent == "topic" and _one_question(q) and not _TOPIC_RULE.search(q):
         # One specific question asks for an answer, not a list (small routers mix the two up).
         u.intent, corrected = "solve", "topic->solve"
-    tax = taxonomy()
-    filters = state.get("filters") or {}
-    category = filters.get("category") or (u.category if u.category in tax.categories else None)
-    tags = [t for t in (tax.resolve(x) for x in (filters.get("tags") or u.tags)) if t]
+    category, tags = resolve_filters(u, state.get("filters") or {})
     queries = [s for s in u.search_queries if s.strip()][:3] or [u.standalone_question or q]
     if u.standalone_question and u.standalone_question not in queries:
         queries.append(u.standalone_question)
@@ -306,7 +313,10 @@ def generate(state: QueryState) -> dict:
     items, lang = state.get("context") or [], state.get("language", "en")
     question = state.get("standalone") or state["question"]
     build = prompts.experience_messages if state["intent"] == "experience" else prompts.solve_messages
-    text, calls, err = _stream_role("generator", build(question, items, lang))
+    if agent_checks.allowed("generator"):
+        text, calls, err = _stream_role("generator", build(question, items, lang))
+    else:  # below its capability thresholds: retrieval-only mode (section 8.4)
+        text, calls, err = None, [], "generator below its capability thresholds"
     if text:
         return {"answer": text, "trace": {"generate_calls": calls}}
     head = ("生成模型暂时不可用。以下是检索到的相关题目和来源，可以先参考：" if lang == "zh"
@@ -369,7 +379,7 @@ def log(state: QueryState, runtime: Runtime[QueryContext]) -> dict:
              json.dumps(state.get("filters") or {}, ensure_ascii=False), state.get("answer", ""),
              json.dumps(state.get("citations") or [], ensure_ascii=False), int(bool(state.get("degraded"))),
              latency, json.dumps(trace, ensure_ascii=False, default=str))).lastrowid
-        job_id = _queue_review(state, log_id)
+        job_id = _queue_review(state, log_id) if (runtime.context is None or runtime.context.review) else None
         if job_id:
             db.conn().execute("UPDATE query_logs SET review_job_id = ? WHERE id = ?", (job_id, log_id))
     except Exception:  # logging must never break the answer

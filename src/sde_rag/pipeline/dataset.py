@@ -30,7 +30,7 @@ log = logging.getLogger("sde_rag.dataset")
 
 # Local usage records and run logs: never published. The merge log keeps the dropped wordings' text, which
 # may come from a source that is not published.
-LOCAL_TABLES = ("query_logs", "alerts", "run_locks", "ingest_runs", "eval_runs", "question_merges")
+LOCAL_TABLES = ("query_logs", "alerts", "run_locks", "ingest_runs", "eval_runs", "question_merges", "agent_checks")
 ASSET = "rag.db.gz"
 TAG_PREFIX = "dataset-"
 

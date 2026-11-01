@@ -135,6 +135,19 @@ uv run sde-rag review --list              # the reviewer's queue and today's rem
 uv run sde-rag query "..." --review       # ask, then wait for the reviewer's verdict on the answer
 ```
 
+Capability checks test each LLM role, as configured on this machine, against a golden set (`evals/agent/`) and
+the thresholds in `config/agent_thresholds.toml` (relax them per machine in `agent_thresholds.local.toml`):
+
+```bash
+uv run sde-rag agent-check                # quick level of every role (about 10 minutes)
+uv run sde-rag agent-check --level full --roles router,planner
+uv run pytest -m agent [--agent-level full]
+```
+
+A result belongs to the role's configuration: after changing a model or backend, check again. A role without a
+passing result is not used where it could do harm: ingest leaves extraction or tagging queued, the reviewer
+pauses, and a failing generator puts the UI into retrieval-only mode. The nightly timer repeats the checks.
+
 The reviewer (by default `claude -p` with Sonnet, read-only) checks whether an answer's knowledge and solution
 are correct. In the UI, answers to specific questions are reviewed shortly after they are given and the verdict
 appears under the answer; "请评审员复核" moves an answer to the front of the queue. `[review] daily_quota` limits

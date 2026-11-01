@@ -1,0 +1,6 @@
+{"question": "Go 面试常问哪些并发相关的问题？", "intent": "topic"}
+{"question": "Explain the Python GIL and when it matters.", "intent": "solve"}
+{"question": "What's the weather in Seattle tomorrow?", "intent": "out_of_scope"}
+{"question": "Amazon SDE2 的面试流程是怎样的？", "intent": "experience"}
+{"question": "Kafka 和 RabbitMQ 有什么区别？各自适合什么场景？", "intent": "solve"}
+{"question": "如何设计一个限流器？", "intent": "solve"}

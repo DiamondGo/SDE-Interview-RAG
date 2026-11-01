@@ -1,0 +1,32 @@
+{"question": "Go 面试常问哪些并发相关的问题？", "lang": "zh", "intent": "topic", "category": "language", "tags": ["golang"], "key_terms": ["go", "concurren"]}
+{"question": "如何设计一个限流器？", "lang": "zh", "intent": "solve", "category": "system_design", "tags": ["rate-limiter"], "key_terms": ["rate limit"]}
+{"question": "Explain the Python GIL and when it matters.", "lang": "en", "intent": "solve", "category": "language", "tags": ["python"]}
+{"question": "Amazon SDE2 的面试流程是怎样的？", "lang": "zh", "intent": "experience", "key_terms": ["amazon"]}
+{"question": "What's the weather in Seattle tomorrow?", "lang": "en", "intent": "out_of_scope"}
+{"question": "React 面试里关于 hooks 的常见问题", "lang": "zh", "intent": "topic", "category": "framework", "tags": ["react"], "key_terms": ["react", "hook"]}
+{"question": "What is the difference between a process and a thread?", "lang": "en", "intent": "solve", "category": "cs_fundamentals", "tags": ["process-thread"]}
+{"question": "Common Kubernetes interview questions", "lang": "en", "intent": "topic", "category": "automation", "tags": ["kubernetes"]}
+{"question": "Kubernetes 的 Pod 和 Deployment 有什么区别？", "lang": "zh", "intent": "solve", "category": "automation", "tags": ["kubernetes"], "key_terms": ["pod", "deployment"]}
+{"question": "帮我写一首关于秋天的诗", "lang": "zh", "intent": "out_of_scope"}
+{"question": "LLM 面试常问的 RAG 问题有哪些？", "lang": "zh", "intent": "topic", "category": "ai_ml", "tags": ["rag"], "key_terms": ["rag|retrieval"]}
+{"question": "How do I find the longest palindromic substring?", "lang": "en", "intent": "solve", "category": "coding", "tags": ["string"]}
+{"question": "Share some recent Google L4 onsite interview experiences.", "lang": "en", "intent": "experience"}
+{"question": "TCP 三次握手为什么不是两次？", "lang": "zh", "intent": "solve", "category": "cs_fundamentals", "tags": ["networking"], "key_terms": ["tcp", "handshake"]}
+{"question": "Top system design interview questions", "lang": "en", "intent": "topic", "category": "system_design"}
+{"question": "设计一个短链服务需要考虑哪些点？", "lang": "zh", "intent": "solve", "category": "system_design", "tags": ["url-shortener"], "key_terms": ["url shorten|short url|tinyurl|shortener"]}
+{"question": "Python 常见面试题", "lang": "zh", "intent": "topic", "category": "language", "tags": ["python"], "key_terms": ["python"]}
+{"question": "How do I reverse a linked list in place?", "lang": "en", "intent": "solve", "category": "coding", "tags": ["linked-list"]}
+{"question": "字节跳动后端一面面经", "lang": "zh", "intent": "experience", "key_terms": ["bytedance|tiktok|byte dance"]}
+{"question": "Recommend a good restaurant near me.", "lang": "en", "intent": "out_of_scope"}
+{"question": "Explain how consistent hashing works.", "lang": "en", "intent": "solve", "category": "system_design"}
+{"question": "What are common behavioral interview questions about conflict?", "lang": "en", "intent": "topic", "category": "behavioral", "tags": ["conflict"]}
+{"question": "Java 的 HashMap 是怎么扩容的？", "lang": "zh", "intent": "solve", "category": "language", "tags": ["java"], "key_terms": ["hashmap", "resiz|rehash|expan|capacity"]}
+{"question": "动态规划的题常考哪些？", "lang": "zh", "intent": "topic", "category": "coding", "tags": ["dynamic-programming"], "key_terms": ["dynamic programming|dp"]}
+{"question": "What is the virtual DOM in React?", "lang": "en", "intent": "solve", "category": "framework", "tags": ["react"]}
+{"question": "Stripe 的面试都考什么？有人分享面经吗？", "lang": "zh", "intent": "experience", "key_terms": ["stripe"]}
+{"question": "How does a Transformer's self-attention work?", "lang": "en", "intent": "solve", "category": "ai_ml", "tags": ["transformer"]}
+{"question": "Docker 和虚拟机有什么区别？", "lang": "zh", "intent": "solve", "category": "automation", "tags": ["docker"], "key_terms": ["docker", "virtual machine|vm"]}
+{"question": "Common SQL interview questions", "lang": "en", "intent": "topic", "category": "cs_fundamentals", "tags": ["sql"]}
+{"question": "Netflix senior engineer interview experiences", "lang": "en", "intent": "experience"}
+{"question": "如何回答“你为什么想来我们公司”？", "lang": "zh", "intent": "solve", "category": "behavioral", "tags": ["why-company"], "key_terms": ["why"]}
+{"question": "Translate this sentence into French: the meeting is at noon.", "lang": "en", "intent": "out_of_scope"}

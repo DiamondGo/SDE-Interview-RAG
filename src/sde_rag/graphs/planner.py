@@ -19,7 +19,7 @@ from typing import Literal
 from langgraph.types import Send
 from pydantic import BaseModel, field_validator
 
-from sde_rag import prompts, retrieval
+from sde_rag import agent_checks, prompts, retrieval
 from sde_rag.agents import AgentError, get_registry
 from sde_rag.auth import Principal
 from sde_rag.graphs.streaming import emit, stream_role
@@ -447,8 +447,11 @@ def synthesize(state: dict) -> dict:
                for s in plan.subqueries}
     trace = {"plan_result": summary, "replans": int(state.get("replans") or 0), "context": [i["label"] for i in items],
              "plan_calls": _calls_used(state)}
-    text, calls, err = stream_role("composer" if lists else "generator",
-                                   prompts.planned_messages(question, plan.model_dump(), summary, items, lang, lists))
+    if lists or agent_checks.allowed("generator"):
+        text, calls, err = stream_role("composer" if lists else "generator",
+                                       prompts.planned_messages(question, plan.model_dump(), summary, items, lang, lists))
+    else:  # below its capability thresholds: retrieval-only mode (section 8.4)
+        text, calls, err = None, [], "generator below its capability thresholds"
     if text:
         return {"answer": text, "context": items, "trace": {**trace, "generate_calls": calls}}
     head = ("生成模型暂时不可用。以下是按子问题整理的检索结果：" if lang == "zh"

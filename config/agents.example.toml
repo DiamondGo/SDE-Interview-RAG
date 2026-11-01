@@ -44,7 +44,8 @@ daily_call_budget = 120
 backend = "local"
 thinking = false
 timeout_s = 60
-max_tokens = 800
+max_tokens = 1200
+fallbacks = ["local"]        # a second try: now and then the local model returns an empty or partial object
 
 [roles.planner]              # complex questions: subqueries with success criteria, replanning (DESIGN 5.4.1)
 backend = "local"

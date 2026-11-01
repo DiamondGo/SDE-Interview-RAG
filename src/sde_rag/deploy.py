@@ -25,8 +25,13 @@ def _units(uv: str) -> dict[str, str]:
         "sde-ingest.timer": "[Unit]\nDescription=SDE Interview RAG ingest at 06:30 and 18:30\n\n"
                             "[Timer]\nOnCalendar=*-*-* 06,18:30:00\nRandomizedDelaySec=120\nPersistent=true\n\n"
                             "[Install]\nWantedBy=timers.target\n",
-        "sde-eval.service": "[Unit]\nDescription=SDE Interview RAG: database backup and nightly evaluation\n\n"
-                            f"{service}ExecStart={run} backup\nExecStart={run} eval\nTimeoutStartSec=2h\n",
+        # "-": a failing step (an evaluation or a check below its thresholds) does not skip the steps after it.
+        "sde-eval.service": "[Unit]\nDescription=SDE Interview RAG: backup, nightly evaluation, capability checks\n\n"
+                            f"{service}ExecStart={run} backup\nExecStart=-{run} eval\n"
+                            f"ExecStart=-{run} agent-check --level quick "
+                            f"--roles extractor,tagger,router,grader,planner,generator,e2e\n"
+                            f"ExecStart=-{run} agent-check --level full --roles reviewer --max-age-hours 160\n"
+                            "TimeoutStartSec=3h\n",
         "sde-eval.timer": "[Unit]\nDescription=SDE Interview RAG backup and evaluation at 03:30\n\n"
                           "[Timer]\nOnCalendar=*-*-* 03:30:00\nRandomizedDelaySec=120\nPersistent=true\n\n"
                           "[Install]\nWantedBy=timers.target\n",

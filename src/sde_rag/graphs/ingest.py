@@ -24,7 +24,7 @@ from langgraph.runtime import Runtime
 from langgraph.types import RetryPolicy, Send
 from typing_extensions import TypedDict
 
-from sde_rag import db, notify, review, watchdog
+from sde_rag import agent_checks, db, notify, review, watchdog
 from sde_rag.agents import get_registry
 from sde_rag.pipeline import dedup, extraction, stages, tagging
 from sde_rag.pipeline.fetch import source_due, sync_source
@@ -184,6 +184,11 @@ def preflight(state: IngestState, runtime: Runtime[IngestContext]) -> dict:
                              "this ingest run leaves its LLM work (tagging, extraction, duplicate judging) queued")
         llm[role] = probed[backend.name]
         notes[role] = "ok" if llm[role] else f"{backend.name} probe failed"
+        if llm[role] and agent_checks.gates_enabled() and role in agent_checks.gate_config().get(
+                "ingest_roles", ["extractor", "tagger"]):
+            # Below its thresholds a role would put wrong questions and tags into the index: leave its work queued.
+            ok, why = agent_checks.gate(role)
+            llm[role], notes[role] = ok, ("ok; " if ok else "below its capability thresholds; ") + why
     return {"llm": llm, "stats": {"preflight": notes}}
 
 

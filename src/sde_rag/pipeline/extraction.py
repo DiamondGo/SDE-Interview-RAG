@@ -115,13 +115,15 @@ def _company(v: str | None) -> str | None:
     return None if not v or _VAGUE_COMPANY.match(v) else v
 
 
-def _call(reg, title: str, parts: list[str], min_chars: int, heartbeat) -> list[tuple[str, Extraction]]:
+def _call(reg, title: str, parts: list[str], min_chars: int, heartbeat, trace: list | None = None
+          ) -> list[tuple[str, Extraction]]:
     """One call per part; a part the model cannot answer for is split in half and tried again."""
     out, queue, total = [], [(p, i + 1) for i, p in enumerate(parts)], len(parts)
     while queue:
         part, n = queue.pop(0)
         try:
-            out.append((part, reg.structured("extractor", Extraction, extract_prompt(title, part, n, total))))
+            out.append((part, reg.structured("extractor", Extraction, extract_prompt(title, part, n, total),
+                                             trace=trace)))
         except AgentError:
             if len(part) < 2 * min_chars:
                 raise

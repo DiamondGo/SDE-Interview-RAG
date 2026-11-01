@@ -215,10 +215,10 @@ capability tests (including the planner) and the gate, then three days of schedu
 - The 18:30 run did nothing ("already done for this run key"): a run started by hand earlier that afternoon had
   used the default half-day key. Now `sde-rag ingest` started by hand gets its own key (`manual-<time>`); the
   timer's unit passes `--scheduled` for the half-day key.
-- A manual run at 18:59 instead. 1Point3Acres (allowed in the 18:00 hour) held the shared Chrome profile from
-  18:59 to 19:06, across 19:00 when the other project's hourly job runs; that job had nothing to post that hour,
-  so it did not need the profile. Lesson: `run_hours` alone does not keep the session clear of the hour; start
-  runs that include it before about 18:40.
+- A manual run at 18:59 instead. 1Point3Acres (allowed in the 18:00 hour) held the browser profile from 18:59 to
+  19:06, across the full hour, when another scheduled job on this machine may use the same profile; that time it
+  did not need it. Lesson: `run_hours` alone does not keep the session clear of the hour; start runs that
+  include it before about 18:40.
 - In that run, one thread needing read permission above 80 was taken for a block, stopped the rest of the source
   and raised an alert. Now a prompt about one thread skips that thread (`SkipDoc`: remembered as seen, never
   retried) and the run goes on.
@@ -226,6 +226,32 @@ capability tests (including the planner) and the gate, then three days of schedu
   left for later runs), 1Point3Acres 23; extraction of 60 posts kept 477 questions (382 new), 7 discarded as
   unquoted (1.4%).
 - Tests: 2 new (117 in total).
+
+### Step 5: agent capability checks and gates — done (2026-10-31)
+
+- `sde_rag/agent_checks.py`: one scorer per role (extractor, tagger, router, grader, planner, generator,
+  reviewer, and a whole-graph smoke test) through the pipeline's own prompts, schemas and parsing; thresholds in
+  `config/agent_thresholds.toml` (relaxed per machine in `agent_thresholds.local.toml`, marked by
+  `sde-rag agents show`); every model call's latency and stalls measured; results stored per configuration
+  fingerprint (`agent_checks`, local only). `sde-rag agent-check [--level quick|full] [--roles]`,
+  `pytest -m agent [--agent-level full]`.
+- Golden sets in `evals/agent/` (written for the sets, modeled on crawled content): extractor 12 posts, tagger 52
+  questions, router 32 queries, grader 16 + 16, planner 12 complex + 8 simple + 5 replanning, generator 8, reviewer
+  12 (6 with a planted error), smoke test 6.
+- Gates: ingest checks the extractor and the tagger when their configuration has no result from the last 24
+  hours, and leaves their work queued when they fail; the reviewer pauses without a passing result; a failing
+  generator puts the UI into retrieval-only mode with a banner; the UI checks the router and the generator in the
+  background at start; the nightly timer runs the quick level of every role and the reviewer's full level weekly.
+- First real run (quick): everything passed except the router (filter F1 0.75; one case with an empty object
+  from the local model). Fixes: the router prompt lists the taxonomy's tags (it had invented "process",
+  "operating-systems"); the category implied by the router's tags wins over its guess, in production too (it had
+  put Kubernetes under system design, which made the category filter exclude the Kubernetes questions); a second
+  try on the same backend; `max_tokens` 800 → 1200. Router full: intent 0.969, filter F1 0.889, key terms 1.0.
+- Full level of every role, all passed: extractor recall 0.96, fabrication 0; tagger category 0.962, tag F1 0.812;
+  grader 0.938 / 1.0; planner 1.0 on every metric (964 s for 25 cases: about 72 s a call with thinking on);
+  generator citations, "no source" and language all 1.0; reviewer detection 1.0, false positives 0, pinpointed 1.0;
+  smoke test 6 of 6, p95 232 s (the planned Kafka question).
+- Tests: 12 new (129 in total, plus the 8 capability checks under `-m agent`).
 
 ## Milestone 3: monitoring and evaluation — planned
 

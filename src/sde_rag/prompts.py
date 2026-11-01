@@ -10,6 +10,7 @@ SOURCES_HEADING = {"zh": "来源", "en": "Sources"}
 def router_messages(question: str, history: list[dict]) -> list[tuple[str, str]]:
     tax = taxonomy()
     cats = "\n".join(f"  - {k}: {v}" for k, v in tax.categories.items())
+    tag_list = "\n".join(f"  - {k}: {', '.join(tax.tags_in(k))}" for k in tax.categories)
     hist = "\n".join(f"{t['role']}: {t['content'][:400]}" for t in history[-4:]) or "(none)"
     system = "You route questions for an interview-preparation assistant for software engineers."
     user = f"""Classify the user's latest message.
@@ -30,7 +31,8 @@ complexity: "complex" when a good answer needs several distinct pieces of materi
 complexity_reason: a few words, why
 category: one of these keys, or null when unclear
 {cats}
-tags: 0-4 short lowercase topic keywords (e.g. "python", "rate-limiter", "kubernetes", "dynamic-programming")
+tags: 0 to 4 tags from this list (the key before each list is its category):
+{tag_list}
 company: a company name if one is mentioned, else null
 standalone_question: the latest message rewritten as a self-contained question (resolve "it", "那用 Java 呢" from the history)
 search_queries: 1-3 ENGLISH search queries for a question bank (translate Chinese; expand abbreviations; include the key terms)

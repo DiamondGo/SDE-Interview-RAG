@@ -108,7 +108,9 @@ def _cfg() -> dict:
 
 
 def enabled() -> bool:
-    return bool(_cfg().get("enabled", True)) and get_registry().usable(ROLE)
+    """Below its capability thresholds (or never checked) the reviewer pauses: unreliable verdicts mislead."""
+    from sde_rag import agent_checks
+    return bool(_cfg().get("enabled", True)) and get_registry().usable(ROLE) and agent_checks.allowed(ROLE)
 
 
 def enqueue(kind: str, subject_id: int, question: str, answer: str, *, priority: int,

@@ -1,0 +1,75 @@
+# Agent capability thresholds (DESIGN 8.2). Initial values, to be calibrated against measured runs.
+# A machine whose model is weaker but acceptable relaxes them in agent_thresholds.local.toml (not committed);
+# `sde-rag agents show` marks relaxed values.
+#
+# Each metric is { min = x } or { max = x }. `quick` is the number of cases of the quick level.
+# Every role also has: stalls (stalled or runaway calls) and p95_latency_s.
+
+[extractor]
+quick = 5
+valid_output = { min = 0.95 }            # cases answered with valid structured output
+recall = { min = 0.8 }                   # labeled questions found
+fabrication = { max = 0.10 }             # proposed questions whose quote does not match the post
+interview_accuracy = { min = 0.9 }       # "is this about interviews" judged right
+stalls = { max = 0 }
+p95_latency_s = { max = 180 }
+
+[tagger]
+quick = 20
+category_accuracy = { min = 0.85 }
+tag_f1 = { min = 0.7 }
+outside_taxonomy = { max = 0.10 }        # proposed tags the taxonomy does not know
+stalls = { max = 0 }
+p95_latency_s = { max = 120 }
+
+[router]
+quick = 10
+intent_accuracy = { min = 0.9 }
+filter_f1 = { min = 0.8 }
+key_terms = { min = 0.8 }                # Chinese queries: English search terms contain the key terms
+stalls = { max = 0 }
+p95_latency_s = { max = 30 }
+
+[grader]
+quick = 10
+sufficiency_accuracy = { min = 0.85 }
+criterion_accuracy = { min = 0.85 }
+stalls = { max = 0 }
+p95_latency_s = { max = 30 }
+
+[planner]
+quick = 8
+complexity_accuracy = { min = 0.85 }     # complex or simple judged right (the router, with the rules)
+simple_unplanned = { min = 0.9 }         # simple questions left on the simple path
+valid_plans = { min = 0.95 }
+aspect_coverage = { min = 0.8 }          # labeled aspects covered by some subquery
+replan_changes_unmet = { min = 0.8 }
+stalls = { max = 0 }
+p95_latency_s = { max = 180 }
+
+[generator]
+quick = 5
+citation_validity = { min = 0.95 }       # cited labels that are in the context
+no_source_labeled = { min = 0.9 }        # empty context: says so and uses the "模型补充" heading
+language = { min = 0.95 }                # answers in the language of the question
+stalls = { max = 0 }
+p95_latency_s = { max = 240 }
+
+[reviewer]
+quick = 5                                # the reviewer's cases use Claude quota: full level weekly
+valid_output = { min = 1.0 }
+error_detection = { min = 0.85 }         # planted errors reported (not judged correct)
+false_positive = { max = 0.15 }          # correct answers judged incorrect
+pinpoint = { min = 0.75 }                # the planted error named in an issue
+stalls = { max = 0 }
+p95_latency_s = { max = 300 }
+
+[e2e]
+quick = 3
+completed = { min = 1.0 }                # every query finished with an answer, no exception
+stalls = { max = 0 }
+p95_latency_s = { max = 300 }
+
+[gate]
+max_age_hours = 24                       # a passing check older than this is checked again before use
+ingest_roles = ["extractor", "tagger"]   # below threshold: the ingest run leaves their work queued

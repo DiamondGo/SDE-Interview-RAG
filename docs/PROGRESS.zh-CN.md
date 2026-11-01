@@ -167,14 +167,34 @@
 
 - 18:30 的运行什么都没做（“already done for this run key”）：当天下午手动运行时用了默认的半天运行标识。现在手动执行
   `sde-rag ingest` 会得到单独的标识（`manual-<时间>`）；定时器的单元加上 `--scheduled`，才使用半天标识。
-- 改为 18:59 手动运行一次。一亩三分地（允许在 18 点这一小时运行）从 18:59 到 19:06 占用了共享的 Chrome profile，正好跨过另一个项目
-  每小时整点运行的任务；那一小时那个任务没有要发的内容，所以没有用到 profile。教训：只靠 `run_hours` 不能保证会话避开整点，
+- 改为 18:59 手动运行一次。一亩三分地（允许在 18 点这一小时运行）从 18:59 到 19:06 占用了浏览器 profile，正好跨过整点；
+  本机另一个定时任务可能在整点使用同一个 profile，那次恰好没有用到。教训：只靠 `run_hours` 不能保证会话避开整点，
   包含一亩三分地的运行要在 18:40 之前开始。
 - 那次运行中，一个要求阅读权限高于 80 的帖子被当成了拦截，导致这个来源后面的帖子都没读，还发了告警。现在只针对某个帖子的提示
   会跳过这个帖子（`SkipDoc`：记为已见过、不再重试），运行继续。
 - 这次运行（19:25 被停止，之后从断点继续）：Medium 31 篇、Reddit 309 篇、LeetCode 80 篇（剩下 220 篇留给后续运行）、一亩三分地 23 篇；
   抽题 60 篇，保留 477 道题（新增 382 道），7 道因引用对不上被丢弃（1.4%）。
 - 测试：新增 2 个（共 117 个）。
+
+### 第 5 步：agent 能力测试和门禁 —— 已完成（2026-10-31）
+
+- `sde_rag/agent_checks.py`：每个角色一个评分器（extractor、tagger、router、grader、planner、generator、reviewer，加上整图冒烟测试），
+  使用管线本身的提示词、schema 和解析；门槛在 `config/agent_thresholds.toml`（各机器可在 `agent_thresholds.local.toml` 里放宽，
+  `sde-rag agents show` 会标出来）；测量每次模型调用的延迟和卡死；结果按配置指纹保存（`agent_checks` 表，只在本地）。
+  `sde-rag agent-check [--level quick|full] [--roles]`、`pytest -m agent [--agent-level full]`。
+- 黄金集在 `evals/agent/`（专门编写，参照抓取到的内容）：extractor 12 篇帖子、tagger 52 道题、router 32 条查询、grader 16 + 16 组、
+  planner 12 个复杂问题 + 8 个简单问题 + 5 个重新规划用例、generator 8 组、reviewer 12 个答案（6 个植入了错误）、冒烟测试 6 条。
+- 门禁：抓取时，如果 extractor 和 tagger 的当前配置 24 小时内没有检查结果就先检查，不达标则它们的工作留在队列里；评审员没有通过记录时暂停；
+  generator 不达标时网页界面进入仅检索模式并显示横幅；网页界面启动时在后台检查 router 和 generator；每晚的定时任务跑所有角色的 quick 级别，
+  评审员的 full 级别每周一次。
+- 第一次实际运行（quick）：除 router 外全部通过（过滤条件 F1 0.75；本地模型有一次返回了空对象）。修复：router 提示词列出分类体系里的标签
+  （它原来会编出 “process”“operating-systems” 这样的标签）；router 的标签对应的大类优先于它自己猜的大类，生产路径同样如此（它原来把
+  Kubernetes 归到系统设计，导致大类过滤把 Kubernetes 的题排除掉）；同一后端重试一次；`max_tokens` 从 800 调到 1200。router full 级别：
+  意图 0.969、过滤条件 F1 0.889、关键术语 1.0。
+- 所有角色的 full 级别全部通过：extractor 召回率 0.96、编造率 0；tagger 大类 0.962、标签 F1 0.812；grader 0.938 / 1.0；planner 各项都是 1.0
+  （25 个用例用了 964 秒：开思考时每次调用约 72 秒）；generator 引用、“没有来源”和语言都是 1.0；reviewer 检出率 1.0、误报 0、定位 1.0；
+  冒烟测试 6 条全部完成，p95 232 秒（经过规划的 Kafka 问题）。
+- 测试：新增 12 个（共 129 个，另有 `-m agent` 下的 8 个能力测试）。
 
 ## 里程碑 3：监控与评估 —— 计划中
 

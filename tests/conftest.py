@@ -24,9 +24,30 @@ def pytest_configure(config):
         os.environ[f"SDE_{name}_CONFIG"] = os.path.join(os.environ["SDE_DATA_DIR"], "no-local-override.toml")
 
 
+def pytest_addoption(parser):
+    parser.addoption("--agent-level", choices=["quick", "full"], default="quick",
+                     help="capability checks (-m agent): quick = the first cases of each role, full = all")
+
+
+@pytest.fixture
+def agent_level(request):
+    return request.config.getoption("--agent-level")
+
+
 @pytest.fixture(autouse=True)
-def isolated(tmp_path, monkeypatch):
-    """Every test gets its own data dir, the hash embedder, no machine-local overrides and fresh caches."""
+def isolated(request, tmp_path, monkeypatch):
+    """Every test gets its own data dir, the hash embedder, no machine-local overrides and fresh caches.
+    Capability checks (-m agent) are the exception: they test this machine's real configuration and data."""
+    if request.node.get_closest_marker("agent"):
+        for name in ("SDE_DATA_DIR", "SDE_MODEL__EMBEDDER__PROVIDER", "SDE_SETTING__HTTP__DEFAULT_DELAY_S",
+                     *(f"SDE_{n}_CONFIG" for n in ("SETTINGS", "AGENTS", "SOURCES", "TAXONOMY"))):
+            monkeypatch.delenv(name, raising=False)
+        _reset()
+        reranker.set_reranker(None, configured=False)
+        yield tmp_path
+        _reset()
+        return
+    monkeypatch.setenv("SDE_SETTING__GATES__ENABLED", "false")
     monkeypatch.setenv("SDE_DATA_DIR", str(tmp_path / "data"))
     for name in ("SETTINGS", "AGENTS", "SOURCES", "TAXONOMY"):
         monkeypatch.setenv(f"SDE_{name}_CONFIG", str(tmp_path / "no-local-override.toml"))

@@ -243,6 +243,8 @@ def test_install_systemd_writes_links_and_leaves_foreign_units_alone(tmp_path):
     assert "OnCalendar=*-*-* 06,18:30:00" in timer and "Persistent=true" in timer
     assert "TimeoutStartSec=4h" in (out_dir / "sde-ingest.service").read_text()
     assert "sde-rag ingest --scheduled" in (out_dir / "sde-ingest.service").read_text()
+    nightly = (out_dir / "sde-eval.service").read_text()
+    assert "ExecStart=-" in nightly and "agent-check --level full --roles reviewer --max-age-hours 160" in nightly
     assert ("enable", "--now", "sde-ingest.timer") in calls and ("enable", "--now", "sde-ui.service") not in calls
     again = install(out_dir=out_dir, unit_dir=unit_dir, systemctl=sysctl)
     assert again["linked"] == []

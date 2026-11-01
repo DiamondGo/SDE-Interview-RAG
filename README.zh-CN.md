@@ -120,6 +120,18 @@ uv run sde-rag review --list              # 评审队列和今天剩余的评审
 uv run sde-rag query "..." --review       # 提问，并等待评审员对回答的结论
 ```
 
+能力测试用一份黄金集（`evals/agent/`）和 `config/agent_thresholds.toml` 里的门槛，检查本机配置下的每个 LLM 角色还能不能胜任
+（各机器可以在 `agent_thresholds.local.toml` 里放宽门槛）：
+
+```bash
+uv run sde-rag agent-check                # 所有角色的 quick 级别（约 10 分钟）
+uv run sde-rag agent-check --level full --roles router,planner
+uv run pytest -m agent [--agent-level full]
+```
+
+检查结果属于角色当前的配置：换了模型或后端就要重新检查。没有通过检查的角色不会在可能出问题的地方使用：抓取时抽题或打标签留在队列里，
+评审员暂停，生成模型不达标时网页界面进入仅检索模式。每晚的定时任务会重跑这些检查。
+
 评审员（默认用 `claude -p` 调用 Sonnet，只读）检查回答里的知识和解法是否正确。在网页界面里，具体题目的回答返回后不久就会被评审，
 结论显示在回答下方；“请评审员复核”会把这条回答排到队列最前面。`[review] daily_quota` 限制每天的调用次数。
 
