@@ -21,7 +21,7 @@ def _units(uv: str) -> dict[str, str]:
     net = "After=network-online.target\nWants=network-online.target\n"
     return {
         "sde-ingest.service": f"[Unit]\nDescription=SDE Interview RAG: fetch, parse, tag and index new content\n{net}\n"
-                              f"{service}ExecStart={run} ingest\nTimeoutStartSec=4h\n",
+                              f"{service}ExecStart={run} ingest --scheduled\nTimeoutStartSec=4h\n",
         "sde-ingest.timer": "[Unit]\nDescription=SDE Interview RAG ingest at 06:30 and 18:30\n\n"
                             "[Timer]\nOnCalendar=*-*-* 06,18:30:00\nRandomizedDelaySec=120\nPersistent=true\n\n"
                             "[Install]\nWantedBy=timers.target\n",

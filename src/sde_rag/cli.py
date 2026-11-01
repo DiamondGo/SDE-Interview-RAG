@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import sys
+from datetime import datetime
 
 
 def _print_table(rows: list[dict], cols: list[str]) -> None:
@@ -31,7 +32,10 @@ def cmd_ingest(args) -> int:
             brief = json.dumps(stats, ensure_ascii=False, default=str)[:400] if stats else ""
             print(f"[{node}] {brief}", flush=True)
 
-    summary = run_ingest(run_key=args.run_key, sources=args.sources.split(",") if args.sources else None,
+    # The half-day key (each slot runs once, whichever scheduler fires) is for scheduled runs only: a run started
+    # by hand gets its own key, so it never takes the slot of the next scheduled run.
+    run_key = args.run_key or (None if args.scheduled else f"manual-{datetime.now():%Y%m%d-%H%M%S}")
+    summary = run_ingest(run_key=run_key, sources=args.sources.split(",") if args.sources else None,
                          force=args.force, doc_limit=args.doc_limit, skip_llm=args.skip_llm, on_update=show)
     print(json.dumps(summary, ensure_ascii=False, indent=1, default=str))
     return 0
@@ -261,7 +265,9 @@ def main(argv: list[str] | None = None) -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("migrate", help="apply database migrations").set_defaults(fn=cmd_migrate)
     s = sub.add_parser("ingest", help="fetch, parse, tag and index new content")
-    s.add_argument("--run-key")
+    s.add_argument("--run-key", help="default: manual-<time>; with --scheduled, the current half-day")
+    s.add_argument("--scheduled", action="store_true",
+                   help="a timer's run: the half-day run key, so each slot runs once whichever scheduler fires")
     s.add_argument("--sources", help="comma-separated source names (default: all due)")
     s.add_argument("--force", action="store_true", help="run even if this run key is done; ignore intervals")
     s.add_argument("--doc-limit", type=int)

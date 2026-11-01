@@ -220,6 +220,16 @@ def test_ui_watchdog_restarts_the_unit_after_two_failures(monkeypatch):
     assert _alert("ui:health")["resolved_at"] is not None
 
 
+def test_a_run_started_by_hand_does_not_take_the_scheduled_slot(monkeypatch):
+    from sde_rag import cli, runner
+    keys = []
+    monkeypatch.setattr(runner, "run_ingest", lambda **kw: keys.append(kw["run_key"]) or {})
+    for argv in (["ingest"], ["ingest", "--scheduled"], ["ingest", "--run-key", "x"]):
+        with pytest.raises(SystemExit):
+            cli.main(argv)
+    assert keys[0].startswith("manual-") and keys[1] is None and keys[2] == "x"
+
+
 def test_install_systemd_writes_links_and_leaves_foreign_units_alone(tmp_path):
     out_dir, unit_dir = tmp_path / "deploy", tmp_path / "user"
     unit_dir.mkdir()
@@ -232,6 +242,7 @@ def test_install_systemd_writes_links_and_leaves_foreign_units_alone(tmp_path):
     timer = (out_dir / "sde-ingest.timer").read_text()
     assert "OnCalendar=*-*-* 06,18:30:00" in timer and "Persistent=true" in timer
     assert "TimeoutStartSec=4h" in (out_dir / "sde-ingest.service").read_text()
+    assert "sde-rag ingest --scheduled" in (out_dir / "sde-ingest.service").read_text()
     assert ("enable", "--now", "sde-ingest.timer") in calls and ("enable", "--now", "sde-ui.service") not in calls
     again = install(out_dir=out_dir, unit_dir=unit_dir, systemctl=sysctl)
     assert again["linked"] == []
