@@ -97,7 +97,8 @@ def _store_document(raw: RawDoc, content_hash: str, raw_path: str) -> int:
             "author = excluded.author, published_at = excluded.published_at, fetched_at = excluded.fetched_at, "
             "kind = excluded.kind, content_type = excluded.content_type, raw_path = excluded.raw_path, "
             "raw_hash = excluded.raw_hash, hints = excluded.hints, status = 'fetched', stage = NULL, attempts = 0, "
-            "next_retry_at = NULL, last_error = NULL, skip_reason = NULL, updated_at = excluded.updated_at",
+            "next_retry_at = NULL, last_error = NULL, skip_reason = NULL, extract_status = NULL, "
+            "extract_attempts = 0, simhash = NULL, dup_of = NULL, updated_at = excluded.updated_at",
             (ref.source, raw.origin, ref.external_id, ref.url, url_norm, alt, raw.title or ref.title, raw.author,
              raw.published_at or ref.published_at, now, raw.kind, raw.content_type, raw_path, content_hash,
              json.dumps(raw.hints), now))

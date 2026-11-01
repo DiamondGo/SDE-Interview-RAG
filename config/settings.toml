@@ -28,6 +28,23 @@ source_backoff_max_hours = 48            # a failing source waits 1, 2, 4 ... in
 stall_alert = 3                          # stalled model calls in one run that raise an alert
 dead_alert_increase = 30                 # new dead letters in one run that raise an alert
 
+[extract]                                # LLM question extraction from interview-experience posts
+docs_per_run = 40
+part_chars = 6000                        # a post is read in parts of about this size
+max_parts = 8                            # longer posts are read up to here
+min_part_chars = 1500                    # a failing part is split in half down to this size
+min_quote_similarity = 0.8               # a question whose quote does not match the post is discarded
+simhash_bits = 3                         # posts this close to one already read are not read again
+max_attempts = 3
+fabrication_alert = 0.15                 # share of discarded questions in one run that raises an alert
+
+[dedup]                                  # near-duplicate questions (thresholds measured on the M1 data)
+merge_at = 0.95                          # merged without asking when the content words also match
+judge_from = 0.92                        # from here up, pairs go to the dedup_judge role
+pairs_per_question = 2
+judge_pairs_per_run = 600
+judge_batch = 10
+
 [maintenance]
 backup_keep = 7                          # daily backups of rag.db kept in data/backups/
 index_retire_days = 7                    # retired index versions are deleted after this long

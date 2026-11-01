@@ -44,30 +44,42 @@ def mark_failed(doc_id: int, stage: str, error: str) -> str:
 STAGE_INPUT = {"clean": "fetched", "parse": "cleaned", "index": "parsed"}
 
 
+REPLAY_STAGES = (*STAGE_INPUT, "extract")      # extraction keeps its own status next to the document's
+
+
 def dead_letters(stage: str | None = None, status: str = "dead", limit: int = 100) -> list[dict]:
-    sql, args = "SELECT id, source, title, stage, attempts, last_error, updated_at FROM documents WHERE status = ?", [status]
-    if stage:
-        sql, args = sql + " AND stage = ?", args + [stage]
-    return [dict(r) for r in db.conn().execute(sql + " ORDER BY id LIMIT ?", (*args, limit))]
+    rows = []
+    if stage != "extract":
+        sql, args = ("SELECT id, source, title, stage, attempts, last_error, updated_at FROM documents "
+                     "WHERE status = ?", [status])
+        if stage:
+            sql, args = sql + " AND stage = ?", args + [stage]
+        rows += [dict(r) for r in db.conn().execute(sql + " ORDER BY id LIMIT ?", (*args, limit))]
+    if stage in (None, "extract"):
+        rows += [dict(r) for r in db.conn().execute(
+            "SELECT id, source, title, 'extract' AS stage, extract_attempts AS attempts, extract_error AS last_error, "
+            "updated_at FROM documents WHERE extract_status = ? ORDER BY id LIMIT ?", (status, limit))]
+    return rows[:limit]
 
 
 def replay(stage: str | None = None, status: str = "dead", doc_ids: list[int] | None = None) -> dict:
     """Documents that failed at `stage` (every stage when None) go back to that stage's input, with their
     attempt count reset; the next ingest run takes them. `status="failed"` skips the retry wait."""
-    if stage is not None and stage not in STAGE_INPUT:
-        raise ValueError(f"unknown stage {stage!r} (known: {', '.join(STAGE_INPUT)})")
+    if stage is not None and stage not in REPLAY_STAGES:
+        raise ValueError(f"unknown stage {stage!r} (known: {', '.join(REPLAY_STAGES)})")
     if status not in ("dead", "failed"):
         raise ValueError("status must be dead or failed")
+    only = f" AND id IN ({','.join('?' * len(doc_ids))})" if doc_ids else ""
     out = {}
     with db.tx() as t:
-        for st in [stage] if stage else list(STAGE_INPUT):
-            sql = ("UPDATE documents SET status = ?, stage = NULL, attempts = 0, next_retry_at = NULL, updated_at = ? "
-                   "WHERE status = ? AND stage = ?")
-            args = [STAGE_INPUT[st], db.now_iso(), status, st]
-            if doc_ids:
-                sql += f" AND id IN ({','.join('?' * len(doc_ids))})"
-                args += doc_ids
-            n = t.execute(sql, args).rowcount
+        for st in [stage] if stage else list(REPLAY_STAGES):
+            if st == "extract":
+                n = t.execute("UPDATE documents SET extract_status = NULL, extract_attempts = 0 "
+                              "WHERE extract_status = ?" + only, [status, *(doc_ids or [])]).rowcount
+            else:
+                n = t.execute("UPDATE documents SET status = ?, stage = NULL, attempts = 0, next_retry_at = NULL, "
+                              "updated_at = ? WHERE status = ? AND stage = ?" + only,
+                              [STAGE_INPUT[st], db.now_iso(), status, st, *(doc_ids or [])]).rowcount
             if n:
                 out[st] = n
     return out
@@ -91,10 +103,34 @@ def clean_stage(limit: int, heartbeat=lambda: None) -> dict:
     return stats
 
 
-def _drop_mentions(t, doc_id: int) -> None:
-    t.execute("UPDATE questions SET stats_dirty = 1 WHERE id IN "
-              "(SELECT question_id FROM question_mentions WHERE doc_id = ?)", (doc_id,))
-    t.execute("DELETE FROM question_mentions WHERE doc_id = ?", (doc_id,))
+def drop_mentions(t, doc_id: int, *, llm: bool) -> None:
+    """The document's rule-parsed mentions (llm=False) or LLM-extracted ones (llm=True); each is redone alone."""
+    cond = "extractor LIKE 'llm:%'" if llm else "extractor NOT LIKE 'llm:%'"
+    t.execute(f"UPDATE questions SET stats_dirty = 1 WHERE id IN "
+              f"(SELECT question_id FROM question_mentions WHERE doc_id = ? AND {cond})", (doc_id,))
+    t.execute(f"DELETE FROM question_mentions WHERE doc_id = ? AND {cond}", (doc_id,))
+
+
+def upsert_question(t, text: str, answer: str = "", section_path: str = "", difficulty: str | None = None
+                    ) -> tuple[int, bool]:
+    """(question id, created). The same normalized wording, or one merged away earlier, finds its question."""
+    h = question_hash(text)
+    row = t.execute("SELECT id, answer FROM questions WHERE norm_hash = ?", (h,)).fetchone() or t.execute(
+        "SELECT q.id, q.answer FROM question_aliases a JOIN questions q ON q.id = a.question_id "
+        "WHERE a.norm_hash = ?", (h,)).fetchone()
+    now = db.now_iso()
+    if row is None:
+        qid = t.execute("INSERT INTO questions (norm_hash, text, answer, section_path, difficulty, created_at, "
+                        "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (h, text, answer, section_path, difficulty, now, now)).lastrowid
+        return qid, True
+    qid = row["id"]
+    if difficulty:
+        t.execute("UPDATE questions SET difficulty = COALESCE(difficulty, ?) WHERE id = ?", (difficulty, qid))
+    if answer and len(answer) > len(row["answer"] or ""):
+        t.execute("UPDATE questions SET answer = ?, section_path = ?, updated_at = ? WHERE id = ?",
+                  (answer, section_path, now, qid))
+    return qid, False
 
 
 def requeue_outdated_parses() -> int:
@@ -110,9 +146,9 @@ def parse_stage(limit: int, heartbeat=lambda: None) -> dict:
     for doc in due_documents("cleaned", "parse", limit):
         try:
             with db.tx() as t:
-                _drop_mentions(t, doc["id"])
+                drop_mentions(t, doc["id"], llm=False)
                 # Experience posts are also searched for Q&A headings; their bare list items and titles are not
-                # questions (discussion threads are full of rhetorical ones). LLM extraction is milestone 2.
+                # questions (discussion threads are full of rhetorical ones). The extractor reads them in full.
                 prep = doc["kind"] == "prep"
                 qas = parse_markdown_qa(doc["clean_text"] or "", bare_list_questions=prep, title_questions=prep)
                 if prep and not qas:
@@ -121,21 +157,8 @@ def parse_stage(limit: int, heartbeat=lambda: None) -> dict:
                     now = db.now_iso()
                     for qa in qas:
                         h = question_hash(qa.question)
-                        row = t.execute("SELECT id, answer FROM questions WHERE norm_hash = ?", (h,)).fetchone()
-                        if row is None:
-                            qid = t.execute(
-                                "INSERT INTO questions (norm_hash, text, answer, section_path, difficulty, "
-                                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                                (h, qa.question, qa.answer, qa.section_path, qa.difficulty, now, now)).lastrowid
-                            stats["new_questions"] += 1
-                        else:
-                            qid = row["id"]
-                            if qa.difficulty:
-                                t.execute("UPDATE questions SET difficulty = COALESCE(difficulty, ?) WHERE id = ?",
-                                          (qa.difficulty, qid))
-                            if qa.answer and len(qa.answer) > len(row["answer"] or ""):
-                                t.execute("UPDATE questions SET answer = ?, section_path = ?, updated_at = ? "
-                                          "WHERE id = ?", (qa.answer, qa.section_path, now, qid))
+                        qid, created = upsert_question(t, qa.question, qa.answer, qa.section_path, qa.difficulty)
+                        stats["new_questions"] += created
                         t.execute(
                             "INSERT INTO question_mentions (question_id, doc_id, mention_hash, text, answer, "
                             "section_path, ordinal, extractor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
@@ -170,7 +193,7 @@ def merge_stage() -> dict:
         marks = ",".join("?" * len(batch))
         rows = c.execute(
             f"SELECT m.question_id AS qid, COUNT(*) AS mentions, COUNT(DISTINCT d.origin) AS origins, "
-            f"COUNT(DISTINCT m.company) AS companies, json_group_array(DISTINCT m.company) AS company_list, "
+            f"COUNT(DISTINCT lower(m.company)) AS companies, json_group_array(DISTINCT m.company) AS company_list, "
             f"MIN(COALESCE(d.published_at, d.fetched_at)) AS first_seen, "
             f"MAX(COALESCE(d.published_at, d.fetched_at)) AS last_seen "
             f"FROM question_mentions m JOIN documents d ON d.id = m.doc_id "
@@ -197,6 +220,9 @@ def delete_question(t, qid: int) -> None:
     for (chunk_id,) in t.execute("SELECT id FROM chunks WHERE kind = 'question' AND question_id = ?", (qid,)).fetchall():
         delete_chunk(t, chunk_id)
     t.execute("DELETE FROM question_tags WHERE question_id = ?", (qid,))
+    t.execute("DELETE FROM question_vectors WHERE question_id = ?", (qid,))
+    t.execute("DELETE FROM question_aliases WHERE question_id = ?", (qid,))
+    t.execute("DELETE FROM dedup_pairs WHERE a = ? OR b = ?", (qid, qid))
     t.execute("DELETE FROM questions WHERE id = ?", (qid,))
 
 

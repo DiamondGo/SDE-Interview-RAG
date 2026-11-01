@@ -28,8 +28,9 @@ from sde_rag.sources import source_configs
 
 log = logging.getLogger("sde_rag.dataset")
 
-# Local usage records and run logs: never published.
-LOCAL_TABLES = ("query_logs", "alerts", "run_locks", "ingest_runs", "eval_runs")
+# Local usage records and run logs: never published. The merge log keeps the dropped wordings' text, which
+# may come from a source that is not published.
+LOCAL_TABLES = ("query_logs", "alerts", "run_locks", "ingest_runs", "eval_runs", "question_merges")
 ASSET = "rag.db.gz"
 TAG_PREFIX = "dataset-"
 
@@ -117,6 +118,9 @@ def _refresh_questions(c: sqlite3.Connection, qids: set[int]) -> int:
         if not r[0]:
             _drop_chunks(c, [x[0] for x in c.execute("SELECT id FROM chunks WHERE question_id = ?", (qid,))])
             c.execute("DELETE FROM question_tags WHERE question_id = ?", (qid,))
+            c.execute("DELETE FROM question_vectors WHERE question_id = ?", (qid,))
+            c.execute("DELETE FROM question_aliases WHERE question_id = ?", (qid,))
+            c.execute("DELETE FROM dedup_pairs WHERE a = ? OR b = ?", (qid, qid))
             c.execute("DELETE FROM questions WHERE id = ?", (qid,))
             removed += 1
             continue

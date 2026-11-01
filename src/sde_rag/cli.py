@@ -256,7 +256,7 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--force", action="store_true", help="replace an existing working database")
     s.set_defaults(fn=cmd_import_data)
     s = sub.add_parser("replay", help="send failed or dead-letter documents through their stage again")
-    s.add_argument("--stage", choices=["clean", "parse", "index"], help="default: every stage")
+    s.add_argument("--stage", choices=["clean", "parse", "index", "extract"], help="default: every stage")
     s.add_argument("--status", choices=["dead", "failed"], default="dead",
                    help="dead: gave up after max_attempts; failed: waiting for a retry (skip the wait)")
     s.add_argument("--ids", help="comma-separated document ids (default: all matching)")

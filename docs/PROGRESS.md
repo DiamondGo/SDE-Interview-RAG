@@ -111,6 +111,30 @@ gate, then three days of scheduled runs for acceptance.
   opening, the alert and the recovery. A real forced run on a copy: after reconcile, all 314 GitHub files were
   listed again and recognised as unchanged by their blob SHA; 0 downloads, no errors, no stalls, 42 seconds.
 
+### Step 2: LLM extraction, fabrication checks, near-duplicate merging — done (2026-10-31)
+
+- Extraction (`extract` node, `extractor` role): interview-experience posts are read in parts of about 6,000
+  characters. The model reports whether the post is about interviews, the company, role, level and year, and
+  each question with a canonical English wording, a verbatim quote, the answer the post gives and the round.
+  A question whose quote does not match the post (similarity below 0.8, ignoring markup, case and punctuation;
+  Chinese compared character by character) is discarded and counted; a run alerts when more than 15% are.
+  A part the model cannot answer for is split in half and tried again. Extraction has its own status, attempts
+  and dead letter (`sde-rag replay --stage extract`), so posts are indexed as text while the model is away.
+- Reposts: a SimHash of the clean text; a post within 3 bits of one already read is marked `duplicate` and not
+  read again.
+- Near-duplicate questions (`dedup` node, `dedup_judge` role): thresholds measured on the M1 data (DESIGN 6.4).
+  Automatic merges need similarity ≥ 0.95 and the same content words in about the same order; other pairs
+  ≥ 0.92 go to the judge (600 pairs per run). Merged wordings become aliases; merges are logged.
+- Measured on a copy of the working database: embedding all 6,633 question texts once took 5 minutes. The
+  extractor reads a 6,000-character part in about 16 seconds (the 218 posts: about 1.5 to 2 hours, spread over
+  runs of 40 posts). The judge decides about 3.5 pairs per second with the flat output (lists of pair numbers;
+  a list of objects broke the local model's JSON in 3 of 4 batches). One run with 8 posts: 153 questions
+  proposed, 148 kept, 4 discarded as unquoted (2.6%, all code-output questions whose code the model
+  reformatted), 74 new questions; 63 automatic merges, 100 pairs judged, 58 merged; 7 minutes 21 seconds.
+- Heat now reflects repetition across sources: after the merges, "Where do you see yourself in five years?"
+  has 6 mentions from 3 sources.
+- Tests: 10 new (79 in total).
+
 ## Milestone 3: monitoring and evaluation — planned
 
 Monitoring and evaluation pages, alert rules, evaluation sets, generation and correctness evaluation with judge

@@ -1,3 +1,4 @@
+import difflib
 import hashlib
 import html
 import re
@@ -52,6 +53,57 @@ def detect_lang(text: str) -> str:
     cjk = sum(1 for ch in sample if "\u4e00" <= ch <= "\u9fff")
     letters = sum(1 for ch in sample if ch.isalpha())
     return "zh" if letters and cjk / letters > 0.2 else "en"
+
+
+# Words, and CJK characters one by one (Chinese has no spaces between words).
+_TOKEN = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]|[^\W_]+")
+
+
+def tokens(text: str) -> list[str]:
+    return _TOKEN.findall(unicodedata.normalize("NFKC", strip_markup(text)).lower())
+
+
+def quote_similarity(quote: str, text: str, *, max_tokens: int = 60) -> float:
+    """How well `quote` matches some passage of `text` (1.0 = verbatim), ignoring markup, case and punctuation.
+
+    Windows of the quote's length are compared wherever one of the quote's first or last tokens occurs."""
+    q = tokens(quote)[:max_tokens]
+    if not q:
+        return 0.0
+    t = tokens(text)
+    if f" {' '.join(q)} " in f" {' '.join(t)} ":
+        return 1.0
+    anchors = {}
+    for j in list(range(min(3, len(q)))) + list(range(max(0, len(q) - 3), len(q))):
+        anchors.setdefault(q[j], j)
+    best, n, tried = 0.0, len(q), set()
+    for i, tok in enumerate(t):
+        j = anchors.get(tok)
+        if j is None or (start := max(0, i - j)) in tried:
+            continue
+        tried.add(start)
+        best = max(best, difflib.SequenceMatcher(None, q, t[start:start + n], autojunk=False).ratio())
+        if best >= 0.999:
+            break
+    return best
+
+
+def simhash(text: str, *, shingle: int = 3) -> int:
+    """64-bit SimHash over word 3-grams, as a signed int (SQLite INTEGER). Reposts and light edits land a few
+    bits apart; unrelated texts about 32."""
+    toks = tokens(text)
+    grams = [" ".join(toks[i:i + shingle]) for i in range(max(1, len(toks) - shingle + 1))]
+    acc = [0] * 64
+    for g in grams:
+        h = int.from_bytes(hashlib.blake2b(g.encode(), digest_size=8).digest(), "big")
+        for b in range(64):
+            acc[b] += 1 if h >> b & 1 else -1
+    v = sum(1 << b for b in range(64) if acc[b] > 0)
+    return v - (1 << 64) if v >= 1 << 63 else v
+
+
+def hamming(a: int, b: int) -> int:
+    return ((a ^ b) & ((1 << 64) - 1)).bit_count()
 
 
 def truncate(text: str, n: int) -> str:

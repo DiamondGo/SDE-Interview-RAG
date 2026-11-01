@@ -519,6 +519,7 @@ fetched ─► cleaned ─► extracted ─► tagged ─► merged ─► index
   ```
 
 - **Anti-fabrication**: `original_text` must fuzzy-match the original text (similarity of at least 0.8); otherwise the question is discarded and counted. This count is the "extraction fabrication rate" metric.
+- **Its own track**: extraction keeps its own status per document (`extract_status`, with its own attempts and dead letter), next to the document's `parsed` / `indexed` status. A post is indexed as text whether or not the extractor has read it, so an unavailable model delays the extracted questions but not the post. Rule-parsed and LLM-extracted mentions are redone separately: re-parsing a post does not throw away what the extractor found.
 - Failure handling (these approaches were validated with the local model on the development machine): when structured output fails, retry with the batch halved; on a timeout, retry with thinking turned off; if it still fails, mark the document `failed` and wait for the next run.
 
 ### 6.4 Deduplication and merging
@@ -526,7 +527,7 @@ fetched ─► cleaned ─► extracted ─► tagged ─► merged ─► index
 Deduplication at crawl time is covered in Section 3.2; this section covers deduplication at the content level.
 
 1. **Document level**: documents with the same content hash are merged; SimHash near-duplicate documents (reposts, light edits) are put into the same document group, and questions are extracted only once.
-2. **Question level**: exact deduplication by the hash of the normalized text; then near-duplicates are found with embeddings: within the same `category`, a cosine similarity ≥ 0.92 (threshold calibrated on the evaluation set) merges questions into the same CanonicalQuestion. Pairs with similarity between 0.85 and 0.92 are sent to the local LLM to judge whether they are the same question (with a cap on the number per run).
+2. **Question level**: exact deduplication by the hash of the normalized text; then near-duplicates are found with embeddings of the question text alone (embedded once, as an e5 `query:`, stored in `question_vectors`), across all categories (on the M1 data, true duplicates were often categorized differently). Measured on the M1 data, similarity alone cannot decide: pairs above 0.97 still include "private IP" and "public IP", or "WeakSet" and "WeakMap", and below 0.92 almost every pair is a different question. So a pair is merged automatically only when its similarity is ≥ 0.95 **and** both have the same content words in about the same order (question words, filler and plural -s ignored). Every other pair with similarity ≥ 0.92 is sent to the local `dedup_judge` role, most similar first, within a budget per run. Questions that point at a snippet ("What is the output of the code below?") never merge. A merge moves the mentions to the kept question, keeps the dropped wording's hash as an alias (so parsing it again finds the kept question), and is logged in `question_merges`.
 3. **Commonness score**: `heat = ln(1 + distinct_sources) + 0.5·ln(1 + distinct_companies) + 0.3·ln(1 + mentions)`, multiplied by the time decay `0.5^(days since last seen / 365)`. The parameters live in the configuration. Repeated posts from the same document group or by the same author count only once.
 
 ### 6.5 Embedding and indexing

@@ -1,6 +1,7 @@
 """Ingest graph: fetch new interview content, clean, extract questions, tag, merge and index.
 
-start -> preflight -> plan -(Send per due source)-> fetch_source -> clean -> parse -> tag -> merge -> index -> report
+start -> preflight -> plan -(Send per due source)-> fetch_source -> clean -> parse -> extract -> tag -> dedup
+      -> merge -> index -> report
 
 Idempotent per run_key (default: today's half-day, e.g. 2026-10-31-PM): a finished run_key returns its summary
 unless force=True. A database lock keeps two schedulers from running ingest at the same time.
@@ -25,7 +26,7 @@ from typing_extensions import TypedDict
 
 from sde_rag import db, notify, watchdog
 from sde_rag.agents import get_registry
-from sde_rag.pipeline import stages, tagging
+from sde_rag.pipeline import dedup, extraction, stages, tagging
 from sde_rag.pipeline.fetch import source_due, sync_source
 from sde_rag.pipeline.indexing import index_stage
 from sde_rag.settings import section
@@ -62,7 +63,7 @@ class IngestState(TypedDict, total=False):
     run_id: int
     owner: str
     done: bool
-    llm_ok: bool
+    llm: dict                         # role -> usable this run (tagger, extractor, dedup_judge)
     stats: Annotated[dict, _merge]
     errors: Annotated[list[str], operator.add]
     summary: dict
@@ -155,24 +156,35 @@ def start(state: IngestState) -> dict:
     return {"run_key": run_key, "run_id": run_id, "owner": owner, "done": False, "stats": {}, "errors": []}
 
 
+LLM_ROLES = ("tagger", "extractor", "dedup_judge")
+
+
 def preflight(state: IngestState, runtime: Runtime[IngestContext]) -> dict:
-    """Is the tagging model usable right now? If not, this run fetches and parses but skips LLM tagging."""
+    """Which LLM roles can work right now? A role that cannot leaves its work queued: the run still fetches,
+    parses, rule-tags, merges exact and obvious duplicates, and indexes."""
     if runtime.context and runtime.context.skip_llm:
-        return {"llm_ok": False, "stats": {"preflight": "LLM skipped by request"}}
+        return {"llm": {}, "stats": {"preflight": "LLM skipped by request"}}
     reg = get_registry()
-    if "tagger" not in reg.roles:
-        return {"llm_ok": False, "stats": {"preflight": "no tagger role configured: rule tags only"}}
-    problems = [m for lvl, m in reg.problems().get("tagger", []) if lvl == "error"]
-    if problems:
-        return {"llm_ok": False, "stats": {"preflight": f"tagger unusable: {problems}"}}
-    backend = reg.backends[reg.role("tagger").attempts[0].backend]
-    ok = backend.probe()
-    if not ok:
-        notify.alert("llm:tagger", "Tagging model not responding",
-                     f"backend {backend.name}: this run skips LLM tagging; rule tags are still applied")
-    else:
-        notify.resolve("llm:tagger", "Tagging model responding again")
-    return {"llm_ok": ok, "stats": {"preflight": "ok" if ok else f"{backend.name} probe failed"}}
+    llm, notes, probed = {}, {}, {}
+    for role in LLM_ROLES:
+        if role not in reg.roles:
+            notes[role] = "not configured"
+            continue
+        problems = [m for lvl, m in reg.problems().get(role, []) if lvl == "error"]
+        if problems:
+            notes[role] = f"unusable: {problems}"
+            continue
+        backend = reg.backends[reg.role(role).attempts[0].backend]
+        if backend.name not in probed:
+            probed[backend.name] = backend.probe()
+            if probed[backend.name]:
+                notify.resolve(f"llm:{backend.name}", f"Model backend {backend.name} responding again")
+            else:
+                notify.alert(f"llm:{backend.name}", f"Model backend {backend.name} not responding",
+                             "this ingest run leaves its LLM work (tagging, extraction, duplicate judging) queued")
+        llm[role] = probed[backend.name]
+        notes[role] = "ok" if llm[role] else f"{backend.name} probe failed"
+    return {"llm": llm, "stats": {"preflight": notes}}
 
 
 def plan(state: IngestState):
@@ -211,11 +223,23 @@ def parse(state: IngestState, runtime: Runtime[IngestContext]) -> dict:
     return {"stats": {"parse": stages.parse_stage(_limit(runtime), _hb(state))}}
 
 
+def extract(state: IngestState) -> dict:
+    return {"stats": {"extract": extraction.extract_stage(
+        int(section("extract").get("docs_per_run", 40)), enabled=bool((state.get("llm") or {}).get("extractor")),
+        heartbeat=_hb(state))}}
+
+
 def tag(state: IngestState) -> dict:
     rule = tagging.rule_tag_stage()
     llm = tagging.llm_tag_stage(int(section("ingest").get("llm_tag_limit_per_run", 600)),
-                                enabled=bool(state.get("llm_ok")), heartbeat=_hb(state))
+                                enabled=bool((state.get("llm") or {}).get("tagger")), heartbeat=_hb(state))
     return {"stats": {"tag": {**rule, **llm}}}
+
+
+def dedup_node(state: IngestState) -> dict:
+    return {"stats": {"dedup": dedup.dedup_stage(
+        judge_enabled=bool((state.get("llm") or {}).get("dedup_judge")),
+        judge_limit=int(section("dedup").get("judge_pairs_per_run", 600)), heartbeat=_hb(state))}}
 
 
 def merge(state: IngestState) -> dict:
@@ -275,6 +299,15 @@ def _alerts(summary: dict, previous: list[dict], cfg: dict, downloaded: int, dup
                      f"documents waiting for a stage, newest run first: {backlogs}")
     elif len(backlogs) >= 2 and backlogs[0] <= backlogs[1]:
         notify.resolve("ingest:backlog", "Backlog no longer growing", f"{backlogs[0]} documents waiting")
+    ext = summary.get("extract") or {}
+    if ext.get("proposed", 0) >= 20:
+        limit = float(section("extract").get("fabrication_alert", 0.15))
+        if ext.get("fabrication_rate", 0) > limit:
+            notify.alert("extract:fabrication", "Extractor making up questions",
+                         f"{ext['unquoted']} of {ext['proposed']} extracted questions quote nothing in their post "
+                         f"(more than {limit:.0%}); they were discarded")
+        else:
+            notify.resolve("extract:fabrication", "Extractor quoting its posts again")
     if summary["stall_count"] >= int(cfg.get("stall_alert", 3)):
         notify.alert("ingest:stalls", "Model calls stalling",
                      f"{summary['stall_count']} stalled calls this run: {summary['stalls']}")
@@ -286,15 +319,18 @@ def build_graph() -> StateGraph:
     # (another process holding the write lock past busy_timeout) is safe.
     busy = RetryPolicy(max_attempts=3, initial_interval=5.0, retry_on=sqlite3.OperationalError)
     for name, fn in (("start", start), ("preflight", preflight), ("fetch_source", fetch_source), ("clean", clean),
-                     ("parse", parse), ("tag", tag), ("merge", merge), ("index", index), ("report", report)):
+                     ("parse", parse), ("extract", extract), ("tag", tag), ("dedup", dedup_node), ("merge", merge),
+                     ("index", index), ("report", report)):
         b.add_node(name, fn, retry_policy=None if name == "start" else busy)
     b.add_edge(START, "start")
     b.add_conditional_edges("start", lambda s: END if s.get("done") else "preflight", ["preflight", END])
     b.add_conditional_edges("preflight", plan, ["fetch_source", "clean"])
     b.add_edge("fetch_source", "clean")
     b.add_edge("clean", "parse")
-    b.add_edge("parse", "tag")
-    b.add_edge("tag", "merge")
+    b.add_edge("parse", "extract")
+    b.add_edge("extract", "tag")
+    b.add_edge("tag", "dedup")
+    b.add_edge("dedup", "merge")
     b.add_edge("merge", "index")
     b.add_edge("index", "report")
     b.add_edge("report", END)
