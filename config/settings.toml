@@ -45,6 +45,18 @@ pairs_per_question = 2
 judge_pairs_per_run = 600
 judge_batch = 10
 
+[planner]                                # complex questions (DESIGN 5.4.1)
+enabled = true
+max_subqueries = 4
+items_per_subquery = 4                   # items a solve/experience subquery keeps after reranking
+topic_items = 10                         # questions a topic subquery keeps
+context_max = 12                         # items of all subqueries in the answer's context
+subquery_retries = 1                     # new search terms for an unmet subquery before replanning
+max_replans = 1
+plan_budget_s = 120                      # retrieval and checks of the planning phase
+max_plan_calls = 10                      # planner, grader and rewrite calls of one question together
+min_relevance = 0.0                      # rerank score an item needs to count for min_items
+
 [review]                                 # the reviewer role (DESIGN 7.6)
 enabled = true
 daily_quota = 120                        # reviewer calls a day (a batch of source answers is one call)

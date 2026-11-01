@@ -3,13 +3,12 @@
 auth -> guard -> understand -> topic: browse -> compose
                             -> solve/experience: retrieve -> rerank -> grade -(not enough, at most twice)-> rewrite
                                -> retrieve ...; enough -> generate
+                            -> complex: plan -> subquery (one branch each) -> check_plan -(unmet)-> replan ...
+                               -> synthesize (graphs/planner.py)
       -> verify -> log (a solve answer is queued for the reviewer)
 
-Streaming: tokens and progress are emitted as custom stream events
-  {"type": "token", "text": ...}   append to the answer being shown
-  {"type": "reset"}               the model failed mid-answer: discard what was shown so far
-  {"type": "status", "text": ...} progress ("searching", "model not responding, switching to ...")
-Consume them with stream_mode="custom" (in-process or through the LangGraph SDK).
+Streaming: tokens and progress are emitted as custom stream events (graphs/streaming.py); consume them with
+stream_mode="custom" (in-process or through the LangGraph SDK).
 """
 
 import json
@@ -19,7 +18,6 @@ import time
 from dataclasses import dataclass
 from typing import Annotated, Literal
 
-from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 from pydantic import BaseModel
@@ -28,7 +26,8 @@ from typing_extensions import TypedDict
 from sde_rag import db, prompts, retrieval, review
 from sde_rag.agents import AgentError, get_registry
 from sde_rag.auth import Principal, auth_provider, safe_can_read
-from sde_rag.index.reranker import get_reranker
+from sde_rag.graphs import planner
+from sde_rag.graphs.streaming import emit as _emit, stream_role as _stream_role
 from sde_rag.parse.markdown_qa import is_question
 from sde_rag.settings import section
 from sde_rag.taxonomy import taxonomy
@@ -61,6 +60,15 @@ def _merge_trace(old: dict | None, new: dict | None) -> dict:
     return {**(old or {}), **new}
 
 
+def _merge_results(old: dict | None, new: dict | None) -> dict:
+    """Subquery results: each branch adds its own; the planner replaces them all with `_replace`."""
+    if not new:
+        return old or {}
+    if new.get("_replace"):
+        return {k: v for k, v in new.items() if k != "_replace"}
+    return {**(old or {}), **new}
+
+
 class QueryState(TypedDict, total=False):
     question: str
     filters: dict
@@ -76,6 +84,13 @@ class QueryState(TypedDict, total=False):
     context: list[dict]
     rounds: int                 # retrieval rounds after the first (rewrites)
     grade: dict
+    complexity: str             # simple | complex (complex questions are planned, section 5.4.1)
+    plan: dict | None
+    sub_results: Annotated[dict, _merge_results]
+    replans: int
+    plan_calls: int
+    plan_started: float
+    plan_next: str | None
     answer: str
     citations: list[dict]
     degraded: bool
@@ -86,18 +101,13 @@ class QueryState(TypedDict, total=False):
 class Understanding(BaseModel):
     intent: Literal["topic", "solve", "experience", "out_of_scope"]
     language: Literal["zh", "en"] = "en"
+    complexity: Literal["simple", "complex"] = "simple"
+    complexity_reason: str = ""
     category: str | None = None
     tags: list[str] = []
     company: str | None = None
     standalone_question: str = ""
     search_queries: list[str] = []
-
-
-def _emit(event: dict) -> None:
-    try:
-        get_stream_writer()(event)
-    except Exception:  # not streaming (plain invoke): nothing to emit to
-        pass
 
 
 def _principal(state: QueryState) -> Principal:
@@ -111,7 +121,8 @@ def auth(state: QueryState, runtime: Runtime[QueryContext]) -> dict:
     # A thread keeps state across turns: clear everything the previous turn produced.
     return {"user_id": p.user_id, "started": time.time(), "intent": "", "degraded": False, "answer": "",
             "citations": [], "context": [], "rounds": 0, "grade": {}, "review_job_id": None,
-            "trace": {"_reset": True, "user": p.scope_key()}}
+            "complexity": "simple", "plan": None, "sub_results": {"_replace": True}, "replans": 0, "plan_calls": 0,
+            "plan_next": None, "trace": {"_reset": True, "user": p.scope_key()}}
 
 
 _INJECTION = re.compile(r"ignore (all|any|the)? ?(previous|prior|above) (instructions|prompts)|system prompt", re.I)
@@ -155,7 +166,10 @@ def understand(state: QueryState) -> dict:
         source = "router"
     except AgentError as e:
         u = rule_understanding(q)
+        u.complexity, u.complexity_reason = planner.rule_complexity(q)
         source = f"rules ({str(e)[:120]})"
+    if u.complexity == "simple" and planner.several_questions(q):
+        u.complexity, u.complexity_reason = "complex", "several questions in one message"
     corrected = None
     if u.intent == "topic" and _one_question(q) and not _TOPIC_RULE.search(q):
         # One specific question asks for an answer, not a list (small routers mix the two up).
@@ -169,9 +183,10 @@ def understand(state: QueryState) -> dict:
         queries.append(u.standalone_question)
     lang = u.language if u.language in ("zh", "en") else detect_lang(q)
     return {"intent": u.intent, "language": lang, "standalone": u.standalone_question or q,
-            "search_queries": queries, "category": category, "tags": tags,
+            "search_queries": queries, "category": category, "tags": tags, "complexity": u.complexity,
             "trace": {"understanding": source, "calls": calls, "intent": u.intent, "queries": queries,
-                      "category": category, "tags": tags, "intent_corrected": corrected}}
+                      "category": category, "tags": tags, "intent_corrected": corrected,
+                      "complexity": [u.complexity, u.complexity_reason]}}
 
 
 def route(state: QueryState) -> str:
@@ -180,6 +195,9 @@ def route(state: QueryState) -> str:
         return "log"
     if intent == "out_of_scope":
         return "out_of_scope"
+    if (state.get("complexity") == "complex" and planner.cfg().get("enabled", True)
+            and get_registry().usable("planner")):
+        return "plan"
     return "browse" if intent == "topic" else "retrieve"
 
 
@@ -213,33 +231,11 @@ def retrieve(state: QueryState) -> dict:
 
 def rerank(state: QueryState) -> dict:
     """A cross-encoder orders the candidates; source answers the reviewer judged wrong move down."""
-    cfg = section("query")
-    items, k = state.get("context") or [], int(cfg.get("context_k", 6))
-    question = state.get("standalone") or state["question"]
-    how = "retrieval order"
-    try:
-        r = get_reranker()
-        if r is not None and items:
-            _emit({"type": "status", "text": "ranking what was found"})
-            scores = r.score(question, [f"{i['title']}\n{i['text']}"[:2000] for i in items])
-            penalty = float(cfg.get("incorrect_answer_penalty", 3.0))
-            adjusted = [float(s) - (penalty if i.get("answer_verdict") == "incorrect" else 0.0)
-                        for s, i in zip(scores, items)]
-            order = sorted(range(len(items)), key=lambda n: -adjusted[n])
-            items = [{**items[n], "rerank_score": round(adjusted[n], 3)} for n in order]
-            how = r.name
-    except Exception as e:  # keep the retrieval order
-        how = f"retrieval order (reranker failed: {type(e).__name__}: {str(e)[:120]})"
-    # One long article can fill every slot (each of its paragraphs matches): keep room for other sources.
-    per_doc, kept, taken = int(cfg.get("max_per_document", 3)), [], {}
-    for i in items:
-        if i["kind"] == "doc":
-            if taken.get(i["doc_id"], 0) >= per_doc:
-                continue
-            taken[i["doc_id"]] = taken.get(i["doc_id"], 0) + 1
-        kept.append(i)
-        if len(kept) >= k:
-            break
+    items = state.get("context") or []
+    if items:
+        _emit({"type": "status", "text": "ranking what was found"})
+    kept, how = retrieval.rerank_items(state.get("standalone") or state["question"], items,
+                                       int(section("query").get("context_k", 6)))
     return {"context": kept, "trace": {f"rerank_{state.get('rounds', 0)}": how,
                                        "context": [i["label"] for i in kept]}}
 
@@ -279,30 +275,6 @@ def rewrite(state: QueryState) -> dict:
     new = state["grade"]["queries"]
     _emit({"type": "status", "text": f"searching again: {'; '.join(new)}"})
     return {"search_queries": list(dict.fromkeys(state["search_queries"] + new)), "rounds": state.get("rounds", 0) + 1}
-
-
-def _stream_role(role: str, messages) -> tuple[str | None, list, str | None]:
-    """Stream a role's answer as custom events. Returns (text or None when every backend failed, calls, error)."""
-    calls: list = []
-    parts: list[str] = []
-    try:
-        for ev in get_registry().stream(role, messages, trace=calls):
-            if ev["type"] == "token":
-                parts.append(ev["text"])
-                _emit({"type": "token", "text": ev["text"]})
-            elif ev["type"] == "reset":
-                parts = []
-                _emit({"type": "reset"})
-                _emit({"type": "status", "text": "model stopped responding, switching to a fallback"})
-            elif ev["type"] == "fallback":
-                _emit({"type": "status", "text": "model unavailable, switching to a fallback"})
-            elif ev["type"] == "attempt":
-                _emit({"type": "status", "text": f"writing the answer ({ev['backend']})"})
-        return "".join(parts), calls, None
-    except AgentError as e:
-        if parts:
-            _emit({"type": "reset"})
-        return None, calls, str(e)
 
 
 def _sources_list(items: list[dict], lang: str) -> str:
@@ -424,13 +396,21 @@ def build_graph() -> StateGraph:
     for name, fn in (("auth", auth), ("guard", guard), ("understand", understand), ("browse", browse),
                      ("retrieve", retrieve), ("rerank", rerank), ("grade", grade), ("rewrite", rewrite),
                      ("compose", compose), ("generate", generate), ("out_of_scope", out_of_scope),
-                     ("verify", verify), ("log", log)):
+                     ("plan", planner.plan_node), ("subquery", planner.run_subquery),
+                     ("check_plan", planner.check_plan), ("replan", planner.replan),
+                     ("synthesize", planner.synthesize), ("verify", verify), ("log", log)):
         b.add_node(name, fn)
     b.add_edge(START, "auth")
     b.add_edge("auth", "guard")
     b.add_conditional_edges("guard", lambda s: "log" if s.get("intent") == "invalid" else "understand",
                             ["log", "understand"])
-    b.add_conditional_edges("understand", route, ["browse", "retrieve", "out_of_scope", "log"])
+    b.add_conditional_edges("understand", route, ["browse", "retrieve", "plan", "out_of_scope", "log"])
+    # Complex questions (section 5.4.1): no usable plan falls back to the simple paths.
+    b.add_conditional_edges("plan", planner.after_plan, ["subquery", "synthesize", "browse", "retrieve"])
+    b.add_edge("subquery", "check_plan")
+    b.add_conditional_edges("check_plan", planner.after_check, ["subquery", "replan", "synthesize"])
+    b.add_conditional_edges("replan", planner.after_replan, ["subquery", "synthesize"])
+    b.add_edge("synthesize", "verify")
     b.add_edge("browse", "compose")
     b.add_edge("retrieve", "rerank")
     b.add_edge("rerank", "grade")

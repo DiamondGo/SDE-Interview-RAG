@@ -46,6 +46,13 @@ thinking = false
 timeout_s = 60
 max_tokens = 800
 
+[roles.planner]              # complex questions: subqueries with success criteria, replanning (DESIGN 5.4.1)
+backend = "local"
+thinking = true
+timeout_s = 180
+max_tokens = 6000
+fallbacks = [{ backend = "gateway", thinking = false, timeout_s = 120 }]
+
 [roles.tagger]
 backend = "local"
 thinking = false

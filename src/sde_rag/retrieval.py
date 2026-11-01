@@ -151,6 +151,38 @@ def load_context(principal: Principal, hits: list[Hit], limit: int, *, answer_ch
     return items
 
 
+def rerank_items(question: str, items: list[dict], k: int, *, per_doc: int | None = None) -> tuple[list[dict], str]:
+    """Cross-encoder order of `items` for `question`, the top k kept. A source answer the reviewer judged
+    incorrect loses `incorrect_answer_penalty`; one post keeps at most `per_doc` paragraphs (one long article
+    whose every paragraph matches would otherwise take every place). Returns (items, how they were ordered)."""
+    from sde_rag.index.reranker import get_reranker
+    cfg = section("query")
+    per_doc = int(cfg.get("max_per_document", 3)) if per_doc is None else per_doc
+    how = "retrieval order"
+    try:
+        r = get_reranker()
+        if r is not None and items:
+            scores = r.score(question, [f"{i['title']}\n{i['text']}"[:2000] for i in items])
+            penalty = float(cfg.get("incorrect_answer_penalty", 3.0))
+            adjusted = [float(s) - (penalty if i.get("answer_verdict") == "incorrect" else 0.0)
+                        for s, i in zip(scores, items)]
+            order = sorted(range(len(items)), key=lambda n: -adjusted[n])
+            items = [{**items[n], "rerank_score": round(adjusted[n], 3)} for n in order]
+            how = r.name
+    except Exception as e:  # keep the retrieval order
+        how = f"retrieval order (reranker failed: {type(e).__name__}: {str(e)[:120]})"
+    kept, taken = [], {}
+    for i in items:
+        if i["kind"] == "doc":
+            if taken.get(i["doc_id"], 0) >= per_doc:
+                continue
+            taken[i["doc_id"]] = taken.get(i["doc_id"], 0) + 1
+        kept.append(i)
+        if len(kept) >= k:
+            break
+    return kept, how
+
+
 # Every item in the bank is an interview question: these words in a topic request carry no topic and only match
 # headings such as "... Interview Questions".
 _TOPIC_FILLER = re.compile(

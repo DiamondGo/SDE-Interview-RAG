@@ -31,6 +31,7 @@ BACKEND_TYPES: dict[str, Callable[[str, dict], Backend]] = {
 # What each role needs from its backend. Streaming roles only need "streaming" when stream = true.
 ROLE_REQUIREMENTS: dict[str, set[str]] = {
     "router": {"structured_output"},
+    "planner": {"structured_output"},
     "tagger": {"structured_output"},
     "extractor": {"structured_output"},
     "grader": {"structured_output"},

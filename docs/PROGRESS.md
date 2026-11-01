@@ -188,6 +188,28 @@ capability tests (including the planner) and the gate, then three days of schedu
   The reviewer answers in about 5 to 60 seconds; the first query also downloaded the reranker (0.57 GB).
 - Tests: 9 new (98 in total).
 
+### Step 4b: the planner for complex questions — done (2026-10-31)
+
+- `understand` reports `complexity`; two or more question marks make a question complex even when the router
+  says simple, and rules decide when the router fails. Complex questions go to `plan` (the `planner` role:
+  local model with thinking, the gateway as fallback); simple ones keep the existing path.
+- `graphs/planner.py`: plan validation (2 to 4 subqueries, every subquery with a code-checked criterion,
+  English search terms, no dependency cycles; one subquery means "not needed"); subqueries run as LangGraph
+  `Send` branches, dependent ones in a later wave with `{s1}` replaced by what s1 found; criteria `min_items`,
+  `has_kind`, `mentions` by code and `covers` in one grader call; one retry with new search terms; `check_plan`
+  and `replan` (met and unchanged subqueries keep their results, a replan that changes nothing stops); budget of
+  time and calls; `synthesize` takes items from every part in turns and answers by the outline, saying which
+  parts found no source. Every failure falls back to the simple path or to what was found.
+- First live run ("Python 的 GIL 对多线程有什么影响？Go 的 goroutine 之间又是怎么通信的？"): planned into two
+  parts, both met, answered in 46 seconds, but the planner had labeled both parts `topic`, so the answer was two
+  lists of interview questions. Fixed: parts of a question that wants an answer become `solve` (and the prompt
+  says so). Second run: both parts retried, part 1 replanned, stopped by the budget; a good answer (CPU-bound
+  versus I/O-bound threads, the GIL is no thread-safety guarantee, channels and select) in 3 minutes 21 seconds.
+  Part 1 had failed `min_items` because subqueries were reranked against their goal, written in Chinese:
+  reranking against the English search query gives the same items scores above the threshold (1.13 and 0.91
+  instead of −0.28 and −0.95). Most of the latency is the planner's thinking and the extra grader calls.
+- Tests: 17 new (115 in total).
+
 ## Milestone 3: monitoring and evaluation — planned
 
 Monitoring and evaluation pages, alert rules, evaluation sets, generation and correctness evaluation with judge

@@ -468,7 +468,8 @@ A plan is rejected, and the simple path is used instead, when:
 
 **Running the plan.**
 - Subqueries without dependencies run in parallel, one LangGraph `Send` branch each; dependent ones run in a second wave, after their inputs.
-- Each subquery uses the retrieval path of its intent: hybrid retrieval for `solve` and `experience`, the heat-sorted browse for `topic`. It reranks with its own goal as the query and keeps `items_per_subquery` items.
+- Each subquery uses the retrieval path of its intent: hybrid retrieval for `solve` and `experience`, the heat-sorted browse for `topic`. It reranks against its first (English) search query and keeps `items_per_subquery` items. Reranking against the goal, which is written in the user's language, scored the same relevant English items about 1.4 lower and failed `min_items`.
+- When the question as a whole is not a request for lists (its intent is not `topic`), parts the planner labeled `topic` become `solve`: otherwise an explanation turns into lists of interview questions, which the first live run showed.
 - Its criteria are checked: code first, then all its `covers` criteria in one `grader` call. The result is `met`, or `unmet` with the reason for each failed criterion.
 - An unmet subquery gets one retry: the grader proposes new search terms, as in `rewrite`, and the subquery runs again.
 
