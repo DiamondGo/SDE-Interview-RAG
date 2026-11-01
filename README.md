@@ -22,7 +22,9 @@ The workflows are standard [LangGraph](https://github.com/langchain-ai/langgraph
 and web UI are one way to run them.
 
 - Design: [docs/DESIGN.md](docs/DESIGN.md) ([中文](docs/DESIGN.zh-CN.md))
-- Progress: [docs/PROGRESS.md](docs/PROGRESS.md) ([中文](docs/PROGRESS.zh-CN.md))
+- Status and roadmap: [docs/ROADMAP.md](docs/ROADMAP.md) ([中文](docs/ROADMAP.zh-CN.md))
+- Running the project and its requirements: [docs/RUNNING.md](docs/RUNNING.md) ([中文](docs/RUNNING.zh-CN.md))
+- Detailed progress log: [docs/PROGRESS.md](docs/PROGRESS.md) ([中文](docs/PROGRESS.zh-CN.md))
 - Published data: [dataset/NOTICE.md](dataset/NOTICE.md)
 
 ## How it works

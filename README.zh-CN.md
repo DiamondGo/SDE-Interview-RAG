@@ -18,7 +18,9 @@
 `query`、`evaluate`），任何 LangGraph 运行环境都能运行；本项目的命令行和网页界面只是其中一种运行方式。
 
 - 设计文档：[docs/DESIGN.zh-CN.md](docs/DESIGN.zh-CN.md)（[English](docs/DESIGN.md)）
-- 进度：[docs/PROGRESS.zh-CN.md](docs/PROGRESS.zh-CN.md)（[English](docs/PROGRESS.md)）
+- 项目进度与整体计划：[docs/ROADMAP.zh-CN.md](docs/ROADMAP.zh-CN.md)（[English](docs/ROADMAP.md)）
+- 运行与环境：[docs/RUNNING.zh-CN.md](docs/RUNNING.zh-CN.md)（[English](docs/RUNNING.md)）
+- 详细进度记录：[docs/PROGRESS.zh-CN.md](docs/PROGRESS.zh-CN.md)（[English](docs/PROGRESS.md)）
 - 公开的数据：[dataset/NOTICE.zh-CN.md](dataset/NOTICE.zh-CN.md)
 
 ## 工作方式
