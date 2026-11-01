@@ -253,6 +253,32 @@ capability tests (including the planner) and the gate, then three days of schedu
   smoke test 6 of 6, p95 232 s (the planned Kafka question).
 - Tests: 12 new (129 in total, plus the 8 capability checks under `-m agent`).
 
+### The planner on the gateway; the model-hang demonstration (2026-10-31)
+
+- The planner now uses `gateway`, with `local` (thinking off) as its fallback. The first full check failed two
+  metrics. The gateway model judged that one search would answer "useEffect 和 useLayoutEffect 有什么区别？分别在
+  什么时候用？" and returned a single subquery, and it once wrote `has_kind` as `"post"`. The prompt now says that
+  a message asking several questions gets at least one subquery per question, and that `has_kind` takes only
+  `question` or `experience`. The router prompt adds that a design question naming no aspects ("Design a URL
+  shortener") is simple. After that: planner 1.0 on every metric, 25 cases in 205 s (964 s before), p95 9 s;
+  router full passed (intent 0.938, filter F1 0.903).
+- The hang demonstration ran in a separate process, leaving the web UI untouched. Environment overrides pointed
+  `local` (and later `gateway`) at a local port that accepts connections and never answers. The circuit stayed
+  open for 120 s instead of 600 s, and gates were off, because the changed address gives a fingerprint with no
+  check record.
+  - The first run found a problem. After the router stalled for 60 s, its retry on the same backend queued for
+    the backend's only slot behind the abandoned call, which held it until its HTTP timeout (180 s, plus one
+    retry). The circuit opened after 432 s, and the UI showed no status meanwhile. Fix: while a backend's last
+    probe has failed, a call that finds its slot held probes again instead of queuing; a second failure opens
+    the circuit and alerts. The router, planner and grader now report their failures as status lines too.
+  - After the fix, with only local hung: the circuit opened after 81 s, `llm:local` alerted (log and desktop),
+    the question was understood by rules, the planner (gateway) split it into two parts, and the full answer
+    came in 134 s. With both hung: the router and grader failed at once on the open circuit, the gateway gave no
+    first token in 30 s, the local fallback failed at once, and a retrieval-only answer came in 61 s with
+    "switching to a fallback" shown. Recovery: the first local call after the open period succeeded, the alert
+    was resolved, and the answer was normal (32 s).
+- Tests: 1 new (a retry on a hung single-slot backend; 130 in total).
+
 ## Milestone 3: monitoring and evaluation — planned
 
 Monitoring and evaluation pages, alert rules, evaluation sets, generation and correctness evaluation with judge

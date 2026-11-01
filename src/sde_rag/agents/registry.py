@@ -159,11 +159,17 @@ class AgentRegistry:
 
     # ---- calls ---------------------------------------------------------------------------
 
-    def _acquire(self, a: Attempt) -> Callable[[], None]:
+    def _acquire(self, role: str, a: Attempt) -> Callable[[], None]:
         slot = self._slots[a.backend]
-        wait = float(a.params.get("queue_timeout_s", 900))
-        if not slot.acquire(timeout=wait):
-            raise BackendUnavailable(f"{a.backend}: still busy after waiting {wait:.0f}s for a free slot")
+        if not slot.acquire(blocking=False):
+            b = self.backends.get(a.backend)
+            # The slot may be held by a call abandoned on a hung server; queuing would wait out its HTTP timeout.
+            if b is not None and b.breaker.suspect and not self._probe(role, b):
+                raise BackendUnavailable(f"{a.backend}: failed its health probe again while a stalled call "
+                                         "holds its slot")
+            wait = float(a.params.get("queue_timeout_s", 900))
+            if not slot.acquire(timeout=wait):
+                raise BackendUnavailable(f"{a.backend}: still busy after waiting {wait:.0f}s for a free slot")
         released = threading.Event()
 
         def release():
@@ -188,12 +194,17 @@ class AgentRegistry:
             with self._stall_lock:
                 self._stalls[f"{role}@{b.name if b else '?'}"] += 1
         if b is not None and isinstance(e, StallError):
-            was_open = b.breaker.is_open()
-            b.breaker.on_stall()
-            if b.breaker.is_open() and not was_open:
-                notify.alert(f"llm:{b.name}", f"Model backend {b.name} not responding",
-                             f"stalled during {role} and failed two health probes; calls to it pause for "
-                             f"{b.breaker.open_s:.0f}s and queued work waits (fallbacks are used where configured)")
+            self._probe(role, b)
+
+    def _probe(self, role: str, b: Backend) -> bool:
+        """Probe after a stall; alert when this probe opens the circuit. True when the backend answers."""
+        was_open = b.breaker.is_open()
+        ok = b.breaker.on_stall()
+        if b.breaker.is_open() and not was_open:
+            notify.alert(f"llm:{b.name}", f"Model backend {b.name} not responding",
+                         f"stalled during {role} and failed two health probes; calls to it pause for "
+                         f"{b.breaker.open_s:.0f}s and queued work waits (fallbacks are used where configured)")
+        return ok
 
     def _note_success(self, b: Backend) -> None:
         if b.breaker.on_success():
@@ -230,7 +241,7 @@ class AgentRegistry:
     def structured(self, name: str, schema: type[BaseModel], messages: Messages, *,
                    trace: list | None = None) -> BaseModel:
         def call(b: Backend, a: Attempt):
-            release = self._acquire(a)
+            release = self._acquire(name, a)
             try:
                 return call_with_deadline(lambda: b.invoke_structured(messages, schema, a.params),
                                           float(a.params.get("timeout_s", 180)), what=f"{name}@{a.backend}",
@@ -258,7 +269,7 @@ class AgentRegistry:
             try:
                 b = self._usable_backend(a)
                 yield {"type": "attempt", "backend": a.backend, "model": getattr(b, "model", ""), "index": i}
-                release = self._acquire(a)
+                release = self._acquire(name, a)
                 timeout = float(a.params.get("timeout_s", 180))
                 if a.params.get("stream") and "streaming" in b.capabilities:
                     opener = lambda b=b, a=a: b.stream_text(messages, a.params)

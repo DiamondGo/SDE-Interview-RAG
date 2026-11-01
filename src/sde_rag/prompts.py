@@ -27,7 +27,8 @@ complexity: "complex" when a good answer needs several distinct pieces of materi
   find together: several questions in one message, two systems compared together with when to use each, a design
   question naming several required aspects ("including capacity estimates and high availability"), or a second
   step that depends on the first ("the most common Meta system-design questions, and how to answer them").
-  Otherwise "simple" (one concept, one problem, one comparison of two well-known concepts such as process vs thread).
+  Otherwise "simple" (one concept, one problem, one comparison of two well-known concepts such as process vs thread,
+  a design question that names no aspects such as "Design a URL shortener").
 complexity_reason: a few words, why
 category: one of these keys, or null when unclear
 {cats}
@@ -125,7 +126,8 @@ _PLAN_RULES = """Each subquery:
 - filters (optional): "category" (one of: {cats}), "tags" (lowercase keywords), "company"
 - criteria: 1 to 3 checkable success criteria, at least one of them not "covers":
     {{"kind": "min_items", "value": "2"}}             at least that many relevant items found (use 2 or 3)
-    {{"kind": "has_kind", "value": "question"}}       a question from the bank among the items ("experience": a post)
+    {{"kind": "has_kind", "value": "question"}}       value "question" (a question from the bank among the items)
+                                                     or "experience" (an interview-experience post); no other value
     {{"kind": "mentions", "value": "<term>"}}         an item names this company or technology
     {{"kind": "covers", "value": "<statement>"}}      the items support this short statement the answer needs
 - depends_on (optional): ids of subqueries whose results this one needs; write "{{s1}}" in its search queries
@@ -139,8 +141,9 @@ def plan_messages(question: str, lang: str, max_subqueries: int) -> list[tuple[s
     system = ("You plan the research for an interview-preparation assistant: you split a complex question into "
               "parts that can each be searched and checked. Answer only with the structured output.")
     user = f"""Split this question into 2 to {max_subqueries} subqueries, one per piece of material the answer needs
-(each thing compared, each aspect asked for, each step that depends on an earlier one). If one search would find
-everything the answer needs, return a single subquery instead.
+(each thing compared, each aspect asked for, each step that depends on an earlier one). A message that asks
+several questions gets at least one subquery per question, even when one article might answer them all. Only when
+the message asks one thing and one search would find everything the answer needs, return a single subquery.
 
 {_PLAN_RULES.format(lang=LANG_NAME[lang], cats=", ".join(tax.categories))}
 

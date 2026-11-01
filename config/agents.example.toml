@@ -48,11 +48,10 @@ max_tokens = 1200
 fallbacks = ["local"]        # a second try: now and then the local model returns an empty or partial object
 
 [roles.planner]              # complex questions: subqueries with success criteria, replanning (DESIGN 5.4.1)
-backend = "local"
-thinking = true
-timeout_s = 180
+backend = "gateway"
+timeout_s = 120
 max_tokens = 6000
-fallbacks = [{ backend = "gateway", thinking = false, timeout_s = 120 }]
+fallbacks = [{ backend = "local", thinking = false, timeout_s = 180 }]
 
 [roles.tagger]
 backend = "local"

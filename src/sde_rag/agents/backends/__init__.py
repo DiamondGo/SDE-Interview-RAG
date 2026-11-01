@@ -58,6 +58,11 @@ class Breaker:
     def is_open(self) -> bool:
         return time.monotonic() < self.open_until
 
+    @property
+    def suspect(self) -> bool:
+        """The last probe failed: the server may be down, and one more failed probe opens the circuit."""
+        return self.enabled and self.failed_probes > 0
+
     def on_stall(self) -> bool:
         """Returns True when the backend still answers."""
         if not self.enabled:

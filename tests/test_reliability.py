@@ -139,6 +139,18 @@ def test_hung_model_without_fallback_fails_fast_once_the_circuit_opens():
     assert time.monotonic() - t0 < 0.1
 
 
+def test_retry_on_a_hung_single_slot_backend_probes_instead_of_queuing_behind_the_stalled_call():
+    hung = FakeBackend("local", delay=2.0)                    # one slot, like the local server
+    hung.breaker = Breaker(lambda: False, enabled=True)
+    reg = make_registry({"tagger": {"backend": "local", "timeout_s": 0.1, "fallbacks": ["local"]}}, {"local": hung})
+    t0 = time.monotonic()
+    with pytest.raises(AllAttemptsFailed, match="failed its health probe again"):
+        reg.structured("tagger", tagging.TagBatch, "x")
+    assert time.monotonic() - t0 < 1.0
+    assert hung.calls == 1 and hung.breaker.is_open()
+    assert _alert("llm:local")["resolved_at"] is None
+
+
 def _summary(backlog: int, dead: int = 0, stalls: int = 0) -> dict:
     return {"duplicate_download_rate": 0.0, "documents_by_status": {"dead": dead}, "backlog": backlog,
             "stalls": {"tagger@local": stalls} if stalls else {}, "stall_count": stalls}

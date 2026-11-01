@@ -193,6 +193,7 @@ def plan_node(state: dict) -> dict:
         p: Plan = get_registry().structured("planner", Plan, prompts.plan_messages(
             question, state.get("language", "en"), int(cfg().get("max_subqueries", 4))), trace=calls)
     except AgentError as e:
+        emit({"type": "status", "text": "planner failed, answering without a plan"})
         return {"plan": None, "trace": {"plan": f"planner unavailable: {str(e)[:200]}", "plan_calls_trace": calls}}
     why = validate(p)
     if why:

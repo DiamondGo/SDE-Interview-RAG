@@ -175,6 +175,7 @@ def understand(state: QueryState) -> dict:
                                       prompts.router_messages(q, state.get("history") or []), trace=calls)
         source = "router"
     except AgentError as e:
+        _emit({"type": "status", "text": "query understanding model failed, using rules"})
         u = rule_understanding(q)
         u.complexity, u.complexity_reason = planner.rule_complexity(q)
         source = f"rules ({str(e)[:120]})"
@@ -265,6 +266,7 @@ def grade(state: QueryState) -> dict:
         g: Grade = get_registry().structured("grader", Grade, prompts.grade_messages(
             question, state.get("context") or [], state["search_queries"]), trace=calls)
     except AgentError as e:  # treat as enough: answering beats a loop on a broken model
+        _emit({"type": "status", "text": "grader failed, answering with what was found"})
         return {"grade": {"sufficient": True, "why": f"grader unavailable: {str(e)[:120]}"},
                 "trace": {f"grade_{state.get('rounds', 0)}": "unavailable"}}
     new = [q.strip() for q in g.queries if q.strip() and q.strip() not in state["search_queries"]][:3]
