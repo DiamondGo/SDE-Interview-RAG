@@ -165,6 +165,28 @@ gate, then three days of scheduled runs for acceptance.
   backlog takes a week or two of scheduled runs.
 - Tests: 10 new (89 in total).
 
+### Step 4: reranking, the grade/rewrite loop, the reviewer — done (2026-10-31)
+
+- `rerank`: 30 candidates are scored by `BAAI/bge-reranker-v2-m3-int8` (fastembed, CPU) against the question;
+  6 go into the context, at most 3 paragraphs of one post (in the first live check, one long article had taken
+  all six places). A source answer the reviewer judged incorrect loses 3 points of score, and the reviewer's
+  corrections travel with it in the context. A failing reranker keeps the retrieval order.
+- `grade` / `rewrite`: the local grader judges whether the context covers the question; when not, its new
+  search queries are added and retrieval runs again, at most twice. A failing grader counts as "enough".
+- The reviewer (`reviewer` role, `claude -p` with Sonnet, read-only, JSON schema): queue `review_jobs` with
+  priorities (1: the user pressed 请评审员复核, 2: a `solve` answer, 4: source answers), a daily quota counted per
+  call (failed and retried calls included; a batch is one call), 40 calls kept for interactive use, retries,
+  and an alert after three failures in a row. The UI process runs the queue in a background thread (pausing a
+  minute after a failure, so a broken reviewer does not use up the quota); the page shows "评审中" and then the
+  verdict with the issues and corrections; the ingest run reviews 10 source answers of the hottest questions
+  in batches of 5. Reviews of query answers hold the questions people asked: they are never published.
+- `sde-rag review --list | --run N | --sources N | --show ID`; `sde-rag query --review` waits for the verdict.
+- Live check on the working database ("如何设计一个限流器（rate limiter）？"): reranked, the grader found the
+  context sufficient on the first round, answer with citations, then the reviewer: correct (5/5, 5/5), one minor
+  issue (a token bucket with B = 60 can pass about 120 requests in a minute, more than "60 per minute" says).
+  The reviewer answers in about 5 to 60 seconds; the first query also downloaded the reranker (0.57 GB).
+- Tests: 9 new (98 in total).
+
 ## Milestone 3: monitoring and evaluation — planned
 
 Monitoring and evaluation pages, alert rules, evaluation sets, generation and correctness evaluation with judge

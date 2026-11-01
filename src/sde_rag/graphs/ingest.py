@@ -1,7 +1,7 @@
 """Ingest graph: fetch new interview content, clean, extract questions, tag, merge and index.
 
 start -> preflight -> plan -(Send per due source)-> fetch_source -> clean -> parse -> extract -> tag -> dedup
-      -> merge -> index -> report
+      -> merge -> index -> review_answers -> report
 
 Idempotent per run_key (default: today's half-day, e.g. 2026-10-31-PM): a finished run_key returns its summary
 unless force=True. A database lock keeps two schedulers from running ingest at the same time.
@@ -24,7 +24,7 @@ from langgraph.runtime import Runtime
 from langgraph.types import RetryPolicy, Send
 from typing_extensions import TypedDict
 
-from sde_rag import db, notify, watchdog
+from sde_rag import db, notify, review, watchdog
 from sde_rag.agents import get_registry
 from sde_rag.pipeline import dedup, extraction, stages, tagging
 from sde_rag.pipeline.fetch import source_due, sync_source
@@ -156,7 +156,7 @@ def start(state: IngestState) -> dict:
     return {"run_key": run_key, "run_id": run_id, "owner": owner, "done": False, "stats": {}, "errors": []}
 
 
-LLM_ROLES = ("tagger", "extractor", "dedup_judge")
+LLM_ROLES = ("tagger", "extractor", "dedup_judge", "reviewer")
 
 
 def preflight(state: IngestState, runtime: Runtime[IngestContext]) -> dict:
@@ -253,6 +253,14 @@ def index(state: IngestState, runtime: Runtime[IngestContext]) -> dict:
     return {"stats": {"index": index_stage(_limit(runtime), _hb(state))}}
 
 
+def review_answers(state: IngestState) -> dict:
+    """Source answers of the hottest questions go to the reviewer, within what the daily quota leaves.
+    Indexing does not wait for it: a verdict changes only ranking and context notes, never the vectors."""
+    return {"stats": {"review": review.review_source_answers(
+        int(section("review").get("source_answers_per_run", 10)),
+        enabled_now=bool((state.get("llm") or {}).get("reviewer")), heartbeat=_hb(state))}}
+
+
 FINISHED = ("indexed", "unchanged", "skipped", "dead")
 
 
@@ -323,7 +331,7 @@ def build_graph() -> StateGraph:
     busy = RetryPolicy(max_attempts=3, initial_interval=5.0, retry_on=sqlite3.OperationalError)
     for name, fn in (("start", start), ("preflight", preflight), ("fetch_source", fetch_source), ("clean", clean),
                      ("parse", parse), ("extract", extract), ("tag", tag), ("dedup", dedup_node), ("merge", merge),
-                     ("index", index), ("report", report)):
+                     ("index", index), ("review_answers", review_answers), ("report", report)):
         b.add_node(name, fn, retry_policy=None if name == "start" else busy)
     b.add_edge(START, "start")
     b.add_conditional_edges("start", lambda s: END if s.get("done") else "preflight", ["preflight", END])
@@ -335,7 +343,8 @@ def build_graph() -> StateGraph:
     b.add_edge("tag", "dedup")
     b.add_edge("dedup", "merge")
     b.add_edge("merge", "index")
-    b.add_edge("index", "report")
+    b.add_edge("index", "review_answers")
+    b.add_edge("review_answers", "report")
     b.add_edge("report", END)
     return b
 

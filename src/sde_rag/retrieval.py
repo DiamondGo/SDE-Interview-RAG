@@ -96,6 +96,17 @@ def _question_source(qid: int) -> dict:
     return dict(r) if r else {"url": "", "origin": "", "title": ""}
 
 
+def _review_note(q) -> str:
+    """What the reviewer found wrong in a source answer, next to it in the context, so the answer avoids it."""
+    if q["answer_verdict"] not in ("incorrect", "minor_issues") or not q["answer_review_id"]:
+        return ""
+    row = db.conn().execute("SELECT result FROM review_jobs WHERE id = ?", (q["answer_review_id"],)).fetchone()
+    issues = json.loads(row[0]).get("issues", []) if row and row[0] else []
+    fixes = "; ".join(f"{i['claim'][:160]} -> {i.get('correction') or i['problem']}"[:400] for i in issues[:4])
+    label = "has errors" if q["answer_verdict"] == "incorrect" else "has minor issues"
+    return f"\nReviewer: this source answer {label}." + (f" Corrections: {fixes}" if fixes else "")
+
+
 def load_context(principal: Principal, hits: list[Hit], limit: int, *, answer_chars: int = 1200,
                  trace: dict | None = None) -> list[dict]:
     """Hits -> prompt-ready items with stable labels ([Q12], [D34#2]). Unreadable chunks are dropped."""
@@ -120,9 +131,11 @@ def load_context(principal: Principal, hits: list[Hit], limit: int, *, answer_ch
             items.append({
                 "label": f"Q{q['id']}", "kind": "question", "chunk_id": ch["id"], "question_id": q["id"],
                 "title": q["text"], "text": f"Question: {q['text']}\n"
-                + (f"Source answer: {truncate(q['answer'], answer_chars)}" if q["answer"] else "Source answer: (none)"),
+                + (f"Source answer: {truncate(q['answer'], answer_chars)}" if q["answer"] else "Source answer: (none)")
+                + _review_note(q),
                 "url": src["url"], "source": src["origin"], "category": q["category"], "tags": ch["tags"].split(),
-                "mention_count": q["mention_count"], "distinct_sources": q["distinct_sources"], "heat": q["heat"]})
+                "mention_count": q["mention_count"], "distinct_sources": q["distinct_sources"], "heat": q["heat"],
+                "answer_verdict": q["answer_verdict"]})
         else:
             d = db.conn().execute("SELECT title, url, origin, published_at FROM documents WHERE id = ?",
                                   (ch["doc_id"],)).fetchone()

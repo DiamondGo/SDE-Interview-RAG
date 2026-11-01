@@ -187,12 +187,15 @@ def publish_data(out: Path | None = None, *, upload: bool = True) -> dict:
     c.execute("BEGIN")
     for table in LOCAL_TABLES:
         c.execute(f"DELETE FROM {table}")
+    # Reviews of query answers hold the questions people asked; reviews of source answers are bank data.
+    c.execute("DELETE FROM review_jobs WHERE kind != 'source_answer' OR status != 'done'")
     dropped, touched = {}, set()
     for source in sorted(unpublished_sources()):
         n = c.execute("SELECT COUNT(*) FROM documents WHERE source = ?", (source,)).fetchone()[0]
         touched |= _drop_source(c, source)
         dropped[source] = n
     removed_questions = _refresh_questions(c, touched)
+    c.execute("DELETE FROM review_jobs WHERE subject_id NOT IN (SELECT id FROM questions)")
     c.execute("COMMIT")
     c.execute("VACUUM")
     counts = {
@@ -205,6 +208,8 @@ def publish_data(out: Path | None = None, *, upload: bool = True) -> dict:
     }
     raw_paths = {r[0] for r in c.execute("SELECT raw_path FROM documents WHERE raw_path IS NOT NULL")}
     leftovers = [t for t in LOCAL_TABLES if c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]]
+    if c.execute("SELECT COUNT(*) FROM review_jobs WHERE kind != 'source_answer'").fetchone()[0]:
+        leftovers.append("review_jobs (query answers)")
     c.close()
     if leftovers:
         tmp.unlink()

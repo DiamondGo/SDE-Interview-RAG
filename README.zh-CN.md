@@ -116,7 +116,12 @@ uv run sde-rag replay --list              # 列出死信（--status failed：等
 uv run sde-rag replay --stage parse       # 下一次运行时让它们重新经过这个阶段
 uv run sde-rag backup                     # 在线备份数据库并压缩到 data/backups/（保留 7 份）
 uv run sde-rag reconcile                  # 修复表间引用，下次运行完整列出 GitHub 仓库，刷新热度
+uv run sde-rag review --list              # 评审队列和今天剩余的评审次数
+uv run sde-rag query "..." --review       # 提问，并等待评审员对回答的结论
 ```
+
+评审员（默认用 `claude -p` 调用 Sonnet，只读）检查回答里的知识和解法是否正确。在网页界面里，具体题目的回答返回后不久就会被评审，
+结论显示在回答下方；“请评审员复核”会把这条回答排到队列最前面。`[review] daily_quota` 限制每天的调用次数。
 
 ## 数据
 

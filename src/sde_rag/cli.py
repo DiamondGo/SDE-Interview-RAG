@@ -61,6 +61,40 @@ def cmd_query(args) -> int:
                 print("[degraded answer]", file=sys.stderr)
             for c in payload.get("citations") or []:
                 print(f"[{c['label']}] {c['title'][:100]} {c['url']}")
+            job_id = payload.get("review_job_id")
+            if job_id and args.review:
+                from sde_rag import review
+                review.request_review(int(job_id))
+                review.run_one((1,))
+                print("\n[reviewer]", json.dumps(review.job(int(job_id)).get("result"), ensure_ascii=False, indent=1))
+            elif job_id:
+                print(f"\n[review queued as job {job_id}: `sde-rag review --run 1`, or --review to wait for it]")
+    return 0
+
+
+def cmd_review(args) -> int:
+    from sde_rag import db, review
+    if args.list:
+        rows = [dict(r) for r in db.conn().execute(
+            "SELECT id, kind, priority, status, verdict, substr(replace(question, char(10), ' '), 1, 60) AS question, "
+            "finished_at FROM review_jobs ORDER BY id DESC LIMIT ?", (args.limit,))]
+        if rows:
+            _print_table(rows, ["id", "kind", "priority", "status", "verdict", "finished_at", "question"])
+        print(f"\ncalls left today: {review.quota_left()}")
+        return 0
+    if args.show:
+        print(json.dumps(review.job(args.show), ensure_ascii=False, indent=1))
+        return 0
+    done = 0
+    while done < args.run:
+        out = review.run_one((1, 2))
+        if out is None:
+            break
+        print(json.dumps(out, ensure_ascii=False))
+        done += 1
+    if args.sources:
+        print(json.dumps(review.review_source_answers(args.sources), ensure_ascii=False, indent=1))
+    print(f"calls left today: {review.quota_left()}")
     return 0
 
 
@@ -237,7 +271,15 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("question")
     s.add_argument("--category")
     s.add_argument("--tags")
+    s.add_argument("--review", action="store_true", help="wait for the reviewer's verdict on the answer")
     s.set_defaults(fn=cmd_query)
+    s = sub.add_parser("review", help="the reviewer's queue: run queued reviews, list them, show one")
+    s.add_argument("--run", type=int, default=0, help="review up to N queued answers (the UI does this itself)")
+    s.add_argument("--sources", type=int, default=0, help="review up to N source answers of high-heat questions")
+    s.add_argument("--list", action="store_true")
+    s.add_argument("--limit", type=int, default=20)
+    s.add_argument("--show", type=int, help="print one review job")
+    s.set_defaults(fn=cmd_review)
     s = sub.add_parser("eval", help="run an evaluation suite")
     s.add_argument("--suite", default="retrieval_self")
     s.add_argument("--sample", type=int, default=100)

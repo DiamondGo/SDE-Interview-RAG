@@ -131,7 +131,14 @@ uv run sde-rag replay --list              # dead letters (--status failed: waiti
 uv run sde-rag replay --stage parse       # send them through their stage again on the next run
 uv run sde-rag backup                     # gzipped online backup in data/backups/ (7 kept)
 uv run sde-rag reconcile                  # consistency repair, full GitHub listing next run, heat refresh
+uv run sde-rag review --list              # the reviewer's queue and today's remaining calls
+uv run sde-rag query "..." --review       # ask, then wait for the reviewer's verdict on the answer
 ```
+
+The reviewer (by default `claude -p` with Sonnet, read-only) checks whether an answer's knowledge and solution
+are correct. In the UI, answers to specific questions are reviewed shortly after they are given and the verdict
+appears under the answer; "请评审员复核" moves an answer to the front of the queue. `[review] daily_quota` limits
+the calls per day.
 
 ## Data
 

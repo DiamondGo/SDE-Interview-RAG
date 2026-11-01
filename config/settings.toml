@@ -45,6 +45,16 @@ pairs_per_question = 2
 judge_pairs_per_run = 600
 judge_batch = 10
 
+[review]                                 # the reviewer role (DESIGN 7.6)
+enabled = true
+daily_quota = 120                        # reviewer calls a day (a batch of source answers is one call)
+interactive_reserve = 40                 # ingest stops reviewing source answers below this many calls left
+review_solve_answers = true              # review every `solve` answer after it was returned
+source_answers_per_run = 10              # source answers of the hottest questions, per ingest run
+source_batch = 5                         # source answers per call
+min_answer_chars = 80
+max_attempts = 3
+
 [onepoint3acres]
 # A dedicated Chrome profile logged in to 1point3acres.com by hand, with --password-store=basic.
 # Set it in settings.local.toml; without it the source is skipped.
@@ -66,7 +76,11 @@ embed_commit_every = 64
 
 [query]
 retrieve_k = 50
-context_k = 6
+rerank_candidates = 30                   # retrieved items the cross-encoder orders ...
+context_k = 6                            # ... of which these go into the answer's context
+max_per_document = 3                     # paragraphs of one post in the context, at most
+max_rewrites = 2                         # extra retrieval rounds when the grader finds the context lacking
+incorrect_answer_penalty = 3.0           # rerank score taken off a source answer the reviewer judged incorrect
 topic_k = 30
 rrf_k = 60
 max_question_chars = 2000

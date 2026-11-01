@@ -1,6 +1,9 @@
 """Query graph: answer an interview-prep question with cited sources.
 
-auth -> guard -> understand -> (topic: browse -> compose | solve/experience: retrieve -> generate) -> verify -> log
+auth -> guard -> understand -> topic: browse -> compose
+                            -> solve/experience: retrieve -> rerank -> grade -(not enough, at most twice)-> rewrite
+                               -> retrieve ...; enough -> generate
+      -> verify -> log (a solve answer is queued for the reviewer)
 
 Streaming: tokens and progress are emitted as custom stream events
   {"type": "token", "text": ...}   append to the answer being shown
@@ -22,9 +25,10 @@ from langgraph.runtime import Runtime
 from pydantic import BaseModel
 from typing_extensions import TypedDict
 
-from sde_rag import db, prompts, retrieval
+from sde_rag import db, prompts, retrieval, review
 from sde_rag.agents import AgentError, get_registry
 from sde_rag.auth import Principal, auth_provider, safe_can_read
+from sde_rag.index.reranker import get_reranker
 from sde_rag.parse.markdown_qa import is_question
 from sde_rag.settings import section
 from sde_rag.taxonomy import taxonomy
@@ -70,6 +74,8 @@ class QueryState(TypedDict, total=False):
     category: str | None
     tags: list[str]
     context: list[dict]
+    rounds: int                 # retrieval rounds after the first (rewrites)
+    grade: dict
     answer: str
     citations: list[dict]
     degraded: bool
@@ -104,7 +110,8 @@ def auth(state: QueryState, runtime: Runtime[QueryContext]) -> dict:
     p = auth_provider().authenticate(runtime.context)
     # A thread keeps state across turns: clear everything the previous turn produced.
     return {"user_id": p.user_id, "started": time.time(), "intent": "", "degraded": False, "answer": "",
-            "citations": [], "context": [], "review_job_id": None, "trace": {"_reset": True, "user": p.scope_key()}}
+            "citations": [], "context": [], "rounds": 0, "grade": {}, "review_job_id": None,
+            "trace": {"_reset": True, "user": p.scope_key()}}
 
 
 _INJECTION = re.compile(r"ignore (all|any|the)? ?(previous|prior|above) (instructions|prompts)|system prompt", re.I)
@@ -190,18 +197,88 @@ def browse(state: QueryState) -> dict:
 
 
 def retrieve(state: QueryState) -> dict:
-    _emit({"type": "status", "text": "searching sources"})
+    _emit({"type": "status", "text": "searching sources" if not state.get("rounds") else "searching again"})
     cfg = section("query")
     trace: dict = {}
     kinds = ["doc"] if state["intent"] == "experience" else None
     filters = state.get("filters") or {}
     hits = retrieval.hybrid(_principal(state), state["search_queries"], kinds=kinds,
                             category=filters.get("category"), tags=filters.get("tags"), trace=trace)
-    items = retrieval.load_context(_principal(state), hits, int(cfg.get("context_k", 6)), trace=trace)
+    items = retrieval.load_context(_principal(state), hits, int(cfg.get("rerank_candidates", 30)), trace=trace)
     if trace.get("degraded"):
         _emit({"type": "status", "text": "vector search unavailable, using keyword search"})
-    return {"context": items, "degraded": bool(trace.get("degraded")),
-            "trace": {"retrieval": trace, "context": [i["label"] for i in items]}}
+    return {"context": items, "degraded": bool(state.get("degraded")) or bool(trace.get("degraded")),
+            "trace": {f"retrieval_{state.get('rounds', 0)}": trace}}
+
+
+def rerank(state: QueryState) -> dict:
+    """A cross-encoder orders the candidates; source answers the reviewer judged wrong move down."""
+    cfg = section("query")
+    items, k = state.get("context") or [], int(cfg.get("context_k", 6))
+    question = state.get("standalone") or state["question"]
+    how = "retrieval order"
+    try:
+        r = get_reranker()
+        if r is not None and items:
+            _emit({"type": "status", "text": "ranking what was found"})
+            scores = r.score(question, [f"{i['title']}\n{i['text']}"[:2000] for i in items])
+            penalty = float(cfg.get("incorrect_answer_penalty", 3.0))
+            adjusted = [float(s) - (penalty if i.get("answer_verdict") == "incorrect" else 0.0)
+                        for s, i in zip(scores, items)]
+            order = sorted(range(len(items)), key=lambda n: -adjusted[n])
+            items = [{**items[n], "rerank_score": round(adjusted[n], 3)} for n in order]
+            how = r.name
+    except Exception as e:  # keep the retrieval order
+        how = f"retrieval order (reranker failed: {type(e).__name__}: {str(e)[:120]})"
+    # One long article can fill every slot (each of its paragraphs matches): keep room for other sources.
+    per_doc, kept, taken = int(cfg.get("max_per_document", 3)), [], {}
+    for i in items:
+        if i["kind"] == "doc":
+            if taken.get(i["doc_id"], 0) >= per_doc:
+                continue
+            taken[i["doc_id"]] = taken.get(i["doc_id"], 0) + 1
+        kept.append(i)
+        if len(kept) >= k:
+            break
+    return {"context": kept, "trace": {f"rerank_{state.get('rounds', 0)}": how,
+                                       "context": [i["label"] for i in kept]}}
+
+
+class Grade(BaseModel):
+    sufficient: bool = True
+    same_question: bool = False
+    missing: str = ""
+    queries: list[str] = []
+
+
+def grade(state: QueryState) -> dict:
+    """Does the context cover the question? When not, the grader proposes new search queries."""
+    if state.get("rounds", 0) >= int(section("query").get("max_rewrites", 2)):
+        return {"grade": {"sufficient": True, "why": "rewrite limit reached"}}
+    _emit({"type": "status", "text": "checking whether the sources cover the question"})
+    question = state.get("standalone") or state["question"]
+    calls: list = []
+    try:
+        g: Grade = get_registry().structured("grader", Grade, prompts.grade_messages(
+            question, state.get("context") or [], state["search_queries"]), trace=calls)
+    except AgentError as e:  # treat as enough: answering beats a loop on a broken model
+        return {"grade": {"sufficient": True, "why": f"grader unavailable: {str(e)[:120]}"},
+                "trace": {f"grade_{state.get('rounds', 0)}": "unavailable"}}
+    new = [q.strip() for q in g.queries if q.strip() and q.strip() not in state["search_queries"]][:3]
+    out = g.model_dump() | {"queries": new}
+    if not g.sufficient and not new:
+        out["sufficient"] = True          # nothing new to search for
+    return {"grade": out, "trace": {f"grade_{state.get('rounds', 0)}": out, "grade_calls": calls}}
+
+
+def after_grade(state: QueryState) -> str:
+    return "generate" if (state.get("grade") or {}).get("sufficient", True) else "rewrite"
+
+
+def rewrite(state: QueryState) -> dict:
+    new = state["grade"]["queries"]
+    _emit({"type": "status", "text": f"searching again: {'; '.join(new)}"})
+    return {"search_queries": list(dict.fromkeys(state["search_queries"] + new)), "rounds": state.get("rounds", 0) + 1}
 
 
 def _stream_role(role: str, messages) -> tuple[str | None, list, str | None]:
@@ -311,28 +388,43 @@ def verify(state: QueryState) -> dict:
 def log(state: QueryState, runtime: Runtime[QueryContext]) -> dict:
     latency = int((time.time() - state.get("started", time.time())) * 1000)
     trace = {**(state.get("trace") or {}), "latency_ms": latency}
+    job_id = None
     try:
-        db.conn().execute(
+        log_id = db.conn().execute(
             "INSERT INTO query_logs (user_id, created_at, question, intent, filters, answer, citations, degraded, "
             "latency_ms, trace) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (state.get("user_id") or "local", db.now_iso(), state.get("question", ""), state.get("intent"),
              json.dumps(state.get("filters") or {}, ensure_ascii=False), state.get("answer", ""),
              json.dumps(state.get("citations") or [], ensure_ascii=False), int(bool(state.get("degraded"))),
-             latency, json.dumps(trace, ensure_ascii=False, default=str)))
+             latency, json.dumps(trace, ensure_ascii=False, default=str))).lastrowid
+        job_id = _queue_review(state, log_id)
+        if job_id:
+            db.conn().execute("UPDATE query_logs SET review_job_id = ? WHERE id = ?", (job_id, log_id))
     except Exception:  # logging must never break the answer
         pass
     turn = []
     if state.get("intent") != "invalid":
         turn = [{"role": "user", "content": state.get("question", "")},
                 {"role": "assistant", "content": truncate(state.get("answer", ""), 1500)}]
-    return {"history": turn, "trace": {"latency_ms": latency}}
+    return {"history": turn, "review_job_id": str(job_id) if job_id else None, "trace": {"latency_ms": latency}}
+
+
+def _queue_review(state: QueryState, log_id: int) -> int | None:
+    """A `solve` answer the generator wrote goes to the reviewer, who checks it after it was returned."""
+    if state.get("intent") != "solve" or not state.get("answer") or "generate_error" in (state.get("trace") or {}):
+        return None
+    if not section("review").get("review_solve_answers", True) or not review.enabled():
+        return None
+    return review.enqueue("query_answer", log_id, state.get("standalone") or state["question"], state["answer"],
+                          priority=2, context=prompts.render_context(state.get("context") or []))
 
 
 def build_graph() -> StateGraph:
     b = StateGraph(QueryState, context_schema=QueryContext, input_schema=QueryInput, output_schema=QueryOutput)
     for name, fn in (("auth", auth), ("guard", guard), ("understand", understand), ("browse", browse),
-                     ("retrieve", retrieve), ("compose", compose), ("generate", generate),
-                     ("out_of_scope", out_of_scope), ("verify", verify), ("log", log)):
+                     ("retrieve", retrieve), ("rerank", rerank), ("grade", grade), ("rewrite", rewrite),
+                     ("compose", compose), ("generate", generate), ("out_of_scope", out_of_scope),
+                     ("verify", verify), ("log", log)):
         b.add_node(name, fn)
     b.add_edge(START, "auth")
     b.add_edge("auth", "guard")
@@ -340,7 +432,10 @@ def build_graph() -> StateGraph:
                             ["log", "understand"])
     b.add_conditional_edges("understand", route, ["browse", "retrieve", "out_of_scope", "log"])
     b.add_edge("browse", "compose")
-    b.add_edge("retrieve", "generate")
+    b.add_edge("retrieve", "rerank")
+    b.add_edge("rerank", "grade")
+    b.add_conditional_edges("grade", after_grade, ["generate", "rewrite"])
+    b.add_edge("rewrite", "retrieve")
     b.add_edge("compose", "verify")
     b.add_edge("generate", "verify")
     b.add_edge("out_of_scope", "log")

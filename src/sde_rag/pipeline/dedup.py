@@ -107,7 +107,8 @@ def merge_questions(t, a: int, b: int, *, how: str, similarity: float | None) ->
     t.execute("INSERT INTO question_aliases (norm_hash, question_id, created_at) VALUES (?, ?, ?) "
               "ON CONFLICT(norm_hash) DO UPDATE SET question_id = excluded.question_id", (d["norm_hash"], keep, db.now_iso()))
     if len(d["answer"] or "") > len(k["answer"] or ""):
-        t.execute("UPDATE questions SET answer = ?, section_path = ? WHERE id = ?", (d["answer"], d["section_path"], keep))
+        t.execute("UPDATE questions SET answer = ?, section_path = ?, answer_verdict = ?, answer_review_id = ? "
+                  "WHERE id = ?", (d["answer"], d["section_path"], d["answer_verdict"], d["answer_review_id"], keep))
     t.execute("UPDATE questions SET difficulty = COALESCE(difficulty, ?), category = COALESCE(category, ?), "
               "stats_dirty = 1, updated_at = ? WHERE id = ?", (d["difficulty"], d["category"], db.now_iso(), keep))
     t.execute("INSERT INTO question_tags (question_id, tag, origin) SELECT ?, tag, origin FROM question_tags "

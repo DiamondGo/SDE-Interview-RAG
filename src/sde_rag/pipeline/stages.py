@@ -128,8 +128,8 @@ def upsert_question(t, text: str, answer: str = "", section_path: str = "", diff
     if difficulty:
         t.execute("UPDATE questions SET difficulty = COALESCE(difficulty, ?) WHERE id = ?", (difficulty, qid))
     if answer and len(answer) > len(row["answer"] or ""):
-        t.execute("UPDATE questions SET answer = ?, section_path = ?, updated_at = ? WHERE id = ?",
-                  (answer, section_path, now, qid))
+        t.execute("UPDATE questions SET answer = ?, section_path = ?, answer_verdict = NULL, answer_review_id = NULL, "
+                  "updated_at = ? WHERE id = ?", (answer, section_path, now, qid))
     return qid, False
 
 

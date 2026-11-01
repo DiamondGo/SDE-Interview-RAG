@@ -88,6 +88,25 @@ Summarize what these posts say: the process and rounds, the questions asked, and
     return [("system", system), ("user", user)]
 
 
+def grade_messages(question: str, items: list[dict], queries: list[str]) -> list[tuple[str, str]]:
+    listing = "\n".join(f"[{i['label']}] {i['title'][:200]}: {i['text'][:300]}" for i in items) or "(nothing found)"
+    system = "You check whether retrieved material is enough to answer an interview-preparation question."
+    user = f"""Question: {question}
+
+Search queries used: {"; ".join(queries)}
+
+Retrieved items (title: start of the text):
+{listing}
+
+Report:
+- sufficient: true when the items cover what the question asks (the same question, or material that answers it).
+- same_question: true when one of the items is the same interview question.
+- missing: in a few words, what the question needs that the items lack ("" when sufficient).
+- queries: when not sufficient, 1 to 3 NEW English search queries that would find the missing material for a
+  question bank (other words or a narrower or broader angle than the queries used); otherwise []."""
+    return [("system", system), ("user", user)]
+
+
 def topic_messages(request: str, items: list[dict], lang: str) -> list[tuple[str, str]]:
     seen = "出现" if lang == "zh" else "seen"
     system = ("You organize interview questions into a study list for a software engineer.\n" + _rules(lang))

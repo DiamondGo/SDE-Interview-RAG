@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sde_rag import auth, db, settings
 from sde_rag.agents import AgentRegistry, set_registry
 from sde_rag.agents.backends import Breaker
-from sde_rag.index import embedder, vectors
+from sde_rag.index import embedder, reranker, vectors
 from sde_rag import taxonomy
 
 
@@ -44,6 +44,7 @@ def _reset():
     taxonomy.taxonomy.cache_clear()
     set_registry(None)
     embedder.set_embedder(None)
+    reranker.set_reranker(reranker.OverlapReranker())
     vectors.reset_indexes()
     auth.reset()
 
